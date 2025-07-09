@@ -1,7 +1,7 @@
 - name: Copy pull secrets
   copy:
     dest: "{{dev_scripts_path}}/pull_secret.json"
-    src: pull-secrets.json
+    src: pull-secret.json
 
 - name: Get username
   command: whoami
