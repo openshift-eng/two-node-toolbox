@@ -267,7 +267,7 @@ Resources:
       IamInstanceProfile: !Ref RHELInstanceProfile
       InstanceType: !Ref HostInstanceType
       NetworkInterfaces:
-      - AssociatePublicIpAddress: "True"
+      - AssociatePublicIpAddress: "False"
         DeviceIndex: "0"
         GroupSet:
         - !GetAtt RHELSecurityGroup.GroupId
@@ -313,6 +313,20 @@ Resources:
 
           echo "====== Creating VG ======" | tee -a "\$log_output_file"
           sudo vgcreate rhel "\$pv_location" |& tee -a "\$log_output_file"
+
+  RHELElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Ref Machinename
+
+  RHELEIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref RHELInstance
+      AllocationId: !GetAtt RHELElasticIP.AllocationId
           
 Outputs:
   InstanceId:
