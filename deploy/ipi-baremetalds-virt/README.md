@@ -74,6 +74,17 @@ The deployment process involves updating configuration files and running an Ansi
 
 > Note: The proxy.env file assumes a relative path for the kubeconfig. You can move the kubeconfig file or change the path in proxy.env to an absolute path for convenience.
 
+### Optional: Accessing the Console WebUI
+
+If you wish to reach the Console WebUI, you can use any preferred proxy extension on your browser to do so.
+
+- Using the `proxy.env` from the previous step, set the public IP address and port number in your proxy extension.
+- After the install, the `kubeadmin-password` file will be saved to be used with the default `kubeadmin` user.
+- Run `oc get routes console -n openshift-console -ojsonpath='{.spec.host}{"\n"}'` to get the Console URL, if you don't already know what it is.
+- You should be able to reach it in your browser and login as normal.
+
+> Note: remember to turn off your proxy extension after you are finished.
+
 #### Non-interactive usage
 - The topology of the cluster (installation mode) can be selected through the Ansible variable "mode"
 - If you are running this installation non-interactively, you can set a variable to avoid all the prompts

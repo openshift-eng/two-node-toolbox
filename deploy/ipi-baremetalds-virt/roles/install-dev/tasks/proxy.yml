@@ -3,6 +3,11 @@
     src: "{{kubeconfig_path}}"
     dest: ./kubeconfig
     flat: true
+- name: get kubeadmin-password
+  fetch:
+    src: "{{kubeadmin_password_path}}"
+    dest: ./kubeadmin-password
+    flat: true
 - name: create proxy environment
   copy:
     content: |

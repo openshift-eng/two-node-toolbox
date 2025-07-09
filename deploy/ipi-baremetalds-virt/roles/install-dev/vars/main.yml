@@ -1,4 +1,5 @@
 kubeconfig_path: "{{dev_scripts_path}}/ocp/{{test_cluster_name}}/auth/kubeconfig"
+kubeadmin_password_path: "{{dev_scripts_path}}/ocp/{{test_cluster_name}}/auth/kubeadmin-password"
 config_file:
   ipi: config_{{mode}}.sh
 make_target:
