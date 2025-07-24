@@ -1,3 +1,4 @@
 deploy/openshift-clusters/roles/install-dev/files/config_arbiter.sh
 deploy/openshift-clusters/roles/install-dev/files/config_fencing.sh
 deploy/openshift-clusters/inventory-backup/
+.cursorrules
