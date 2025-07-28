@@ -1,5 +1,6 @@
 ---
-# Cluster state management tasks
+# Common cluster state management tasks
+# Used by both kcli-install and dev-scripts install-dev roles
 
 - name: Check if cluster state directory exists
   stat:
@@ -23,14 +24,14 @@
     content: |
       {
         "topology": "{{ topology }}",
-        "installation_method": "IPI",
-        "num_masters": 2,
-        "num_workers": 0,
-        "enable_arbiter": {% if topology == "arbiter" %}"true"{% else %}""{% endif %},
+        "installation_method": "{{ installation_method | upper }}",
+        "num_masters": {{ num_masters | default(ctlplanes, true) | default(2) }},
+        "num_workers": {{ num_workers | default(workers, true) | default(0) }},
+        "enable_arbiter": {{ enable_arbiter | default(('true' if topology == 'arbiter' else 'false'), true) | to_json }},
         "num_extra_workers": 0,
         "status": "deploying",
         "deployment_started_at": "{{ now(utc=True).isoformat() }}",
-        "deployed_by": "{{ ansible_playbook_name | default('setup.yml') }}"
+        "deployed_by": "{{ ansible_playbook_name | default(default_playbook_name, true) | default('cluster-deployment') }}"
       }
     dest: "{{ cluster_state_dir }}/{{ cluster_state_filename }}"
     force: yes
@@ -44,7 +45,7 @@
   debug:
     msg: |
       Cluster state updated to DEPLOYING phase:
-      - Configuration: {{ topology }} cluster (IPI installation)
+      - Configuration: {{ topology }} cluster ({{ installation_method | upper }} installation)
       - Status: DEPLOYING (OpenShift installation in progress)
       - Started at: {{ now(utc=True).isoformat() }}
   run_once: true
@@ -56,15 +57,15 @@
     content: |
       {
         "topology": "{{ topology }}",
-        "installation_method": "IPI",
-        "num_masters": 2,
-        "num_workers": 0,
-        "enable_arbiter": {% if topology == "arbiter" %}"true"{% else %}""{% endif %},
+        "installation_method": "{{ installation_method | upper }}",
+        "num_masters": {{ num_masters | default(ctlplanes, true) | default(2) }},
+        "num_workers": {{ num_workers | default(workers, true) | default(0) }},
+        "enable_arbiter": {{ enable_arbiter | default(('true' if topology == 'arbiter' else 'false'), true) | to_json }},
         "num_extra_workers": 0,
         "status": "deployed",
         "deployment_started_at": "{{ cluster_deployment_started_at | default(now(utc=True).isoformat()) }}",
         "deployed_at": "{{ now(utc=True).isoformat() }}",
-        "deployed_by": "{{ ansible_playbook_name | default('setup.yml') }}"
+        "deployed_by": "{{ ansible_playbook_name | default(default_playbook_name, true) | default('cluster-deployment') }}"
       }
     dest: "{{ cluster_state_dir }}/{{ cluster_state_filename }}"
     force: yes
@@ -78,8 +79,8 @@
   debug:
     msg: |
       Cluster state updated after successful deployment:
-      - Configuration: {{ topology }} cluster (IPI installation)
-      - Masters: 2, Workers: 0, Arbiter: {% if topology == 'arbiter' %}enabled{% else %}disabled{% endif %}
+      - Configuration: {{ topology }} cluster ({{ installation_method | upper }} installation)
+      - Masters: {{ num_masters | default(ctlplanes, true) | default(2) }}, Workers: {{ num_workers | default(workers, true) | default(0) }}, Arbiter: {% if topology == 'arbiter' %}enabled{% else %}disabled{% endif %}
       - Status: DEPLOYED (cluster successfully running)
       - Deployed at: {{ now(utc=True).isoformat() }}
   run_once: true
@@ -91,15 +92,15 @@
     content: |
       {
         "topology": "{{ topology }}",
-        "installation_method": "IPI",
-        "num_masters": 2,
-        "num_workers": 0,
-        "enable_arbiter": {% if topology == "arbiter" %}"true"{% else %}""{% endif %},
+        "installation_method": "{{ installation_method | upper }}",
+        "num_masters": {{ num_masters | default(ctlplanes, true) | default(2) }},
+        "num_workers": {{ num_workers | default(workers, true) | default(0) }},
+        "enable_arbiter": {{ enable_arbiter | default(('true' if topology == 'arbiter' else 'false'), true) | to_json }},
         "num_extra_workers": 0,
         "status": "deployed",
         "deployment_started_at": "{{ cluster_deployment_started_at | default(now(utc=True).isoformat()) }}",
         "redeployed_at": "{{ now(utc=True).isoformat() }}",
-        "deployed_by": "{{ ansible_playbook_name | default('redeploy.yml') }}"
+        "deployed_by": "{{ ansible_playbook_name | default(default_playbook_name, true) | default('cluster-redeploy') }}"
       }
     dest: "{{ cluster_state_dir }}/{{ cluster_state_filename }}"
     force: yes
@@ -114,8 +115,8 @@
   debug:
     msg: |
       Cluster state updated after successful redeploy:
-      - Configuration: {{ topology }} cluster (IPI installation)
-      - Masters: 2, Workers: 0, Arbiter: {% if topology == 'arbiter' %}enabled{% else %}disabled{% endif %}
+      - Configuration: {{ topology }} cluster ({{ installation_method | upper }} installation)
+      - Masters: {{ num_masters | default(ctlplanes, true) | default(2) }}, Workers: {{ num_workers | default(workers, true) | default(0) }}, Arbiter: {% if topology == 'arbiter' %}enabled{% else %}disabled{% endif %}
       - Status: DEPLOYED (cluster successfully redeployed)
       - Redeployed at: {{ now(utc=True).isoformat() }}
   run_once: true

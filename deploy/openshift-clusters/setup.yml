@@ -54,7 +54,7 @@
 
     - name: Pre-load variables from the 'install-dev' role
       ansible.builtin.include_vars:
-        dir: roles/install-dev/vars
+        dir: roles/dev-scripts/install-dev/vars
       run_once: true
 
     - name: CONFIRMATION - Display the chosen config file
@@ -74,7 +74,7 @@
 
   roles:
     - config
-    - install-dev
+    - dev-scripts/install-dev
 
   tasks:
     - name: "Final verification message"

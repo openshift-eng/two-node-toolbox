@@ -1,34 +1,70 @@
 # Config Role
 
-This role performs basic user configuration for the development environment.
+Common configuration and utility tasks shared across OpenShift deployment roles.
 
 ## Description
 
-The config role sets up essential user configuration for bare metal development environments. It:
+This role provides common functionality that can be reused by different OpenShift deployment methods (kcli, dev-scripts, etc.) to ensure consistency and reduce code duplication.
 
-1. Enables user lingering for systemd services (necessary for consistent functioning of the proxy container)
-2. Installs SSH public key for the current user
-3. Configures bash history search with inputrc
-4. Sets up git user configuration by importing the git-user role
+## Common Tasks
 
-## Requirements
+### cluster-state.yml
 
-- SSH key pair generated (key name specified in variables must exist)
-- Sudo privileges for enabling user lingering
-- Git user role available
+Manages cluster deployment state tracking across different installation methods.
 
-## Role Variables
-
-This role uses runtime variables:
-- Current username (detected automatically via `whoami`)
-- SSH public key from `~/.ssh/id_ed25519.pub`, as noted in the general README instructions for the installation process
-
-## Usage
-
-This role is typically run as part of the initial setup:
-
-```bash
-ansible-playbook setup.yml
+**Usage:**
+```yaml
+- name: Set cluster state to deploying
+  include_role:
+    name: config
+    tasks_from: cluster-state
+  vars:
+    cluster_state_phase: 'deploying'  # or 'deployed'
+    installation_method: 'kcli'       # or 'ipi'
+    default_playbook_name: 'setup.yml'
 ```
+
+**Required Variables:**
+- `cluster_state_phase`: 'deploying' or 'deployed'
+- `installation_method`: Installation method identifier (e.g., 'kcli', 'ipi')
+- `topology`: Cluster topology ('fencing' or 'arbiter')
+- `cluster_state_dir`: Directory for state files
+- `cluster_state_filename`: State file name
+
+**Optional Variables:**
+- `default_playbook_name`: Default playbook name for state tracking
+- `num_masters` / `ctlplanes`: Number of master nodes
+- `num_workers` / `workers`: Number of worker nodes
+- `enable_arbiter`: Arbiter configuration
+
+### validate-auth.yml
+
+Validates authentication files required for OpenShift deployment.
+
+**Usage:**
+```yaml
+- name: Validate authentication files
+  include_role:
+    name: config
+    tasks_from: validate-auth
+```
+
+**Required Variables:**
+- `pull_secret_path`: Path to OpenShift pull secret
+- `ssh_public_key_path`: Path to SSH public key
+
+**Optional Variables:**
+- `ocp_version`: OpenShift version (enables CI registry validation when set to 'ci')
+
+## Benefits
+
+- **Consistency**: Ensures identical behavior across deployment methods
+- **Maintainability**: Single source of truth for common functionality
+- **Reliability**: Shared validation reduces deployment failures
+- **Testability**: Common tasks only need testing once
+
+## Integration
+
+Both `kcli/kcli-install` and `dev-scripts/install-dev` roles use these common tasks to eliminate code duplication while maintaining consistent cluster state management and validation.
 
  

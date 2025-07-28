@@ -1,5 +1,14 @@
 - import_tasks: dev-scripts.yml
 
+# Add authentication validation that was previously missing
+- name: Validate authentication files
+  include_role:
+    name: config
+    tasks_from: validate-auth
+  when: 
+    - pull_secret_path is defined
+    - ssh_public_key_path is defined
+
 # Full installation mode (topology change - after realclean)
 - name: Check if kubeconfig exists (should not after realclean)
   stat:
@@ -9,9 +18,13 @@
 
 # PHASE 1: DEPLOYING - Update state before starting installation
 - name: Set cluster state to deploying (full installation)
-  include_tasks: cluster-state.yml
+  include_role:
+    name: config
+    tasks_from: cluster-state
   vars:
     cluster_state_phase: 'deploying'
+    installation_method: 'ipi'
+    default_playbook_name: 'setup.yml'
   when: 
     - install_dev_mode is defined and install_dev_mode == 'install'
     - not kubeconfig_after_realclean.stat.exists
@@ -28,9 +41,13 @@
 
 # PHASE 1: DEPLOYING - Update state before starting redeploy
 - name: Set cluster state to deploying (redeploy)
-  include_tasks: cluster-state.yml
+  include_role:
+    name: config
+    tasks_from: cluster-state
   vars:
     cluster_state_phase: 'deploying'
+    installation_method: 'ipi'
+    default_playbook_name: 'redeploy.yml'
   when: install_dev_mode is defined and install_dev_mode == 'redeploy'
 
 # Redeploy mode (same topology)
@@ -57,6 +74,10 @@
 
 # PHASE 2: DEPLOYED - Update state after successful completion
 - name: Set cluster state to deployed
-  include_tasks: cluster-state.yml
+  include_role:
+    name: config
+    tasks_from: cluster-state
   vars:
     cluster_state_phase: 'deployed'
+    installation_method: 'ipi'
+    default_playbook_name: 'setup.yml'

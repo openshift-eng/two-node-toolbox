@@ -136,6 +136,6 @@
 
   roles:
     - config
-    - install-dev
+    - dev-scripts/install-dev
 
   # Cluster state management is now handled by the install-dev role

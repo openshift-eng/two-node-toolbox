@@ -1,5 +1,5 @@
 - hosts: metal_machine
   roles:
-    - clean
+    - dev-scripts/clean
   gather_facts: no
   force_handlers: yes

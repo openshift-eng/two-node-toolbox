@@ -1,0 +1,38 @@
+---
+# Common authentication validation tasks
+# Used by deployment roles to validate pull secrets and SSH keys
+
+- name: Check if pull secret file exists
+  stat:
+    path: "{{ pull_secret_path }}"
+  register: pull_secret_stat
+
+- name: Fail if pull secret is missing
+  fail:
+    msg: "OpenShift pull secret not found at {{ pull_secret_path }}. Please download it from https://console.redhat.com/openshift/install/pull-secret"
+  when: not pull_secret_stat.stat.exists
+
+- name: Check pull secret content for CI builds
+  block:
+    - name: Read pull secret content
+      slurp:
+        src: "{{ pull_secret_path }}"
+      register: pull_secret_content
+
+    - name: Validate CI registry access in pull secret
+      fail:
+        msg: "Pull secret missing 'registry.ci.openshift.org' access required for CI builds. Please ensure your pull secret includes CI registry credentials."
+      when: "'registry.ci.openshift.org' not in (pull_secret_content.content | b64decode)"
+  when: 
+    - ocp_version is defined
+    - ocp_version == "ci"
+
+- name: Check if SSH public key exists
+  stat:
+    path: "{{ ssh_public_key_path }}"
+  register: ssh_key_stat
+
+- name: Fail if SSH public key is missing
+  fail:
+    msg: "SSH public key not found at {{ ssh_public_key_path }}. Please generate SSH keys first."
+  when: not ssh_key_stat.stat.exists 
