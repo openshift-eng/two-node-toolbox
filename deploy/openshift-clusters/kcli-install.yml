@@ -1,0 +1,65 @@
+---
+# OpenShift Two-Node Cluster deployment using kcli
+# This playbook deploys a two-node OpenShift cluster with fencing or arbiter configuration
+
+- hosts: localhost
+  gather_facts: yes
+  
+  # --- Variable Definitions ---
+  vars:
+    # By default, run in interactive mode. Automation will override this.
+    interactive_mode: true
+    # Set default installation mode for normal installations
+    install_dev_mode: 'install'
+
+  # --- Pre-flight Checks and Confirmation ---
+  pre_tasks:
+    # The prompt for 'topology' runs when interactive_mode is not defined or is true
+    - name: Prompt for the topology
+      ansible.builtin.pause:
+        prompt: "Enter topology (arbiter or fencing)"
+      register: prompt_result
+      delegate_to: localhost
+      run_once: true
+      when: interactive_mode is not defined or interactive_mode | bool
+
+    # Default 'topology' if not interactive or not provided
+    - name: Set the topology fact
+      ansible.builtin.set_fact:
+        topology: "{{ prompt_result.user_input | default('') or topology | default('fencing') }}"
+
+    - name: Pre-load variables from the 'kcli-install' role
+      ansible.builtin.include_vars:
+        dir: roles/kcli/kcli-install/vars
+      run_once: true
+
+    - name: CONFIRMATION - Display the chosen configuration
+      ansible.builtin.debug:
+        msg: |
+          Topology: {{ topology }}
+          Method: kcli (equivalent to dev-scripts IPI)
+          Cluster: {{ test_cluster_name | default('ostest-kcli') }}
+          Domain: {{ domain | default('karmalabs.corp') }}
+          Version: {{ ocp_version | default('ci') }}/{{ ocp_tag | default('4.20') }}
+      run_once: true
+      # Confirmation runs when interactive_mode is not defined or is true
+      when: interactive_mode is not defined or interactive_mode | bool
+
+    - name: Wait for user to press Enter to continue
+      ansible.builtin.pause:
+        prompt: "Please verify the information above is correct. Press Enter to proceed."
+      delegate_to: localhost
+      run_once: true
+      # Final confirmation pause runs when interactive_mode is not defined or is true
+      when: interactive_mode is not defined or interactive_mode | bool
+
+  roles:
+    - kcli/kcli-install
+
+  vars_files:
+    - vars/kcli-install.yml
+
+  tasks:
+  - name: "Final verification message"
+    ansible.builtin.debug:
+      msg: "Installation tasks have completed for {{ topology }} topology." 

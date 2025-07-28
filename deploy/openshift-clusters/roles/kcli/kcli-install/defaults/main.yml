@@ -1,0 +1,59 @@
+# kcli-install role default variables
+# These are user-configurable defaults that can be overridden
+
+# Cluster configuration (consistent with install-dev role)
+test_cluster_name: tnf-cluster
+topology: fencing  # "fencing" or "arbiter" 
+domain: lab.example.com
+cluster_network_type: OVNKubernetes
+
+# Installation method and mode
+method: kcli
+install_dev_mode: install  # "install" or "redeploy"
+
+# Two-node cluster configuration (automatically set based on topology)
+ctlplanes: 2
+workers: 0
+
+# OpenShift version configuration
+ocp_version: ci
+ocp_tag: '4.20'
+openshift_release_image: ""  # Optional: override with specific release image
+ci_token: ""  # Required for CI builds if not using OPENSHIFT_CI=true
+openshift_ci: false  # Set to true to avoid using CI_TOKEN (has side effects)
+
+# Virtual machine specifications
+vm_memory: 32768
+vm_numcpus: 16
+vm_disk_size: 120
+
+# Network configuration
+network_name: default
+api_ip: ""  # Will be auto-detected if empty
+ingress_ip: ""  # Will use api_ip if empty
+
+# Authentication configuration
+pull_secret_path: "{{ ansible_user_dir }}/openshift_pull.json"
+ssh_public_key_path: "{{ ansible_user_dir }}/.ssh/id_rsa.pub"
+
+# BMC/Redfish configuration for fencing
+bmc_user: admin
+bmc_password: admin123
+bmc_driver: redfish  # "redfish" or "ipmi"
+ksushy_port: 8000
+
+# Arbiter-specific configuration (only used when topology == "arbiter") 
+arbiter_memory: 16384  # Memory for arbiter node
+
+# State management (consistent with install-dev role)
+cluster_state_dir: "../aws-hypervisor/instance-data"
+cluster_state_filename: "cluster-vm-state.json"
+
+# Deployment configuration
+kcli_threaded: true
+kcli_async: false
+force_cleanup: false
+
+# kcli client configuration
+kcli_client: ""  # Use default client if empty
+kcli_debug: false 

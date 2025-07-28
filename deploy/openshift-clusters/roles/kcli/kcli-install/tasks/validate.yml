@@ -1,0 +1,78 @@
+---
+# Configuration validation for kcli-install
+
+- name: Validate cluster name
+  fail:
+    msg: "test_cluster_name must be defined and not empty"
+  when: test_cluster_name is not defined or test_cluster_name == ""
+
+- name: Validate topology
+  fail:
+    msg: "topology must be either 'fencing' or 'arbiter'"
+  when: topology is not defined or topology not in ['fencing', 'arbiter']
+
+- name: Validate domain
+  fail:
+    msg: "domain must be defined and not empty"
+  when: domain is not defined or domain == ""
+
+- name: Validate two-node configuration
+  fail:
+    msg: "For two-node OpenShift with fencing, ctlplanes must be 2 and workers must be 0"
+  when: ctlplanes != 2 or workers != 0
+
+- name: Validate memory requirements
+  fail:
+    msg: "Minimum memory requirement for OpenShift control plane nodes is 16GB (16384 MB)"
+  when: vm_memory < 16384
+
+- name: Validate disk size requirements
+  fail:
+    msg: "Minimum disk size requirement for OpenShift nodes is 120GB"
+  when: vm_disk_size < 120
+
+- name: Validate OpenShift version format
+  fail:
+    msg: "ocp_tag must be in format 'X.YY' (e.g., '4.16')"
+  when: ocp_tag is not match('^[0-9]+\.[0-9]+$')
+
+- name: Validate BMC credentials for fencing
+  fail:
+    msg: "BMC user and password must be defined for fencing configuration"
+  when: bmc_user == "" or bmc_password == ""
+
+- name: Validate CI configuration for CI builds
+  block:
+    - name: Check CI token when using CI builds
+      fail:
+        msg: "ci_token must be provided for CI builds when openshift_ci is false"
+      when: 
+        - ocp_version == "ci"
+        - not openshift_ci
+        - (ci_token is not defined or ci_token == "")
+
+    - name: Warn about OPENSHIFT_CI side effects
+      debug:
+        msg: "WARNING: openshift_ci=true avoids using CI_TOKEN but has side effects. See dev-scripts documentation."
+      when: 
+        - ocp_version == "ci"
+        - openshift_ci
+  when: ocp_version == "ci"
+
+- name: Check if cluster already exists
+  command: kcli list vm --short
+  register: existing_vms
+  changed_when: false
+  failed_when: false
+
+- name: Warn if cluster VMs already exist
+  debug:
+    msg: "WARNING: VMs for cluster {{ test_cluster_name }} may already exist. Use force_cleanup=true to remove them."
+  when: test_cluster_name + '-ctlplane' in existing_vms.stdout
+
+- name: Fail if cluster exists and force_cleanup is false
+  fail:
+    msg: "Cluster {{ test_cluster_name }} already exists. Set force_cleanup=true to remove existing cluster first."
+  when: 
+    - test_cluster_name + '-ctlplane' in existing_vms.stdout
+    - not force_cleanup 

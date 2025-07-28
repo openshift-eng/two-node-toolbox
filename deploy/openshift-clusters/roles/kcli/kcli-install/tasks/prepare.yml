@@ -1,0 +1,51 @@
+---
+# Preparation tasks for kcli-install
+
+- name: Clean up existing cluster if force_cleanup is enabled
+  block:
+    - name: Delete existing cluster
+      command: >
+        kcli delete cluster openshift {{ test_cluster_name }} --yes
+      register: cleanup_result
+      failed_when: false
+      when: force_cleanup
+
+    - name: Display cleanup result
+      debug:
+        msg: "Cleanup result: {{ cleanup_result.stdout }}"
+      when: force_cleanup and cleanup_result is defined
+
+    - name: Wait for cleanup to complete
+      pause:
+        seconds: 30
+      when: force_cleanup
+  when: force_cleanup
+
+- name: Create temporary directory for kcli parameters
+  tempfile:
+    state: directory
+    suffix: kcli-params
+  register: temp_dir
+
+- name: Set kcli parameters file path
+  set_fact:
+    kcli_params_file: "{{ temp_dir.path }}/kcli-params.yml"
+
+- name: Generate kcli parameter file
+  template:
+    src: kcli-params.yml.j2
+    dest: "{{ kcli_params_file }}"
+    mode: '0600'
+
+- name: Display generated parameters
+  debug:
+    msg: "Generated kcli parameters in {{ kcli_params_file }}"
+
+- name: Read and display kcli parameters
+  slurp:
+    src: "{{ kcli_params_file }}"
+  register: params_content
+
+- name: Show kcli deployment parameters
+  debug:
+    msg: "{{ params_content.content | b64decode | from_yaml }}" 

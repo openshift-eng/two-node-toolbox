@@ -1,0 +1,34 @@
+# kcli-install playbook example variable overrides
+# Copy and customize these variables for your specific environment
+# Only include variables you want to override from role defaults
+
+# Example: Custom cluster identification
+# test_cluster_name: "my-production-cluster"
+# domain: "prod.example.com"
+
+# Example: Different OpenShift version
+# ocp_version: "stable"
+# ocp_tag: "4.19"
+
+# Example: Custom VM specifications for larger environments
+# vm_memory: 65536  # 64GB RAM per node
+# vm_numcpus: 32    # 32 CPU cores per node
+# vm_disk_size: 200 # 200GB disk per node
+
+# Example: Custom network configuration
+# network_name: "production"
+# api_ip: "10.0.1.100"
+# ingress_ip: "10.0.1.101"
+
+# Example: Custom authentication paths
+# pull_secret_path: "/opt/secrets/pull-secret.json"
+# ssh_public_key_path: "/opt/keys/cluster-key.pub"
+
+# Example: Custom BMC configuration
+# bmc_user: "cluster-admin"
+# bmc_password: "secure-password"
+# ksushy_port: 9000
+
+# Example: Force cleanup for development
+# force_cleanup: true
+# kcli_debug: true 

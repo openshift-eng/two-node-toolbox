@@ -1,0 +1,48 @@
+---
+# Prerequisites check for kcli-install
+
+- name: Check if kcli is installed
+  command: which kcli
+  register: kcli_check
+  failed_when: false
+  changed_when: false
+
+- name: Fail if kcli is not installed
+  fail:
+    msg: "kcli is not installed. Please install kcli before running this playbook."
+  when: kcli_check.rc != 0
+
+- name: Check kcli version
+  command: kcli version
+  register: kcli_version_output
+  changed_when: false
+
+- name: Display kcli version
+  debug:
+    msg: "Using kcli version: {{ kcli_version_output.stdout }}"
+
+# Use common authentication validation
+- name: Validate authentication files
+  include_role:
+    name: config
+    tasks_from: validate-auth
+
+- name: Check available libvirt pools
+  command: kcli list pool
+  register: kcli_pools
+  changed_when: false
+  failed_when: false
+
+- name: Display available pools
+  debug:
+    msg: "Available kcli pools: {{ kcli_pools.stdout_lines }}"
+
+- name: Check available networks
+  command: kcli list network
+  register: kcli_networks
+  changed_when: false
+  failed_when: false
+
+- name: Display available networks
+  debug:
+    msg: "Available kcli networks: {{ kcli_networks.stdout_lines }}" 

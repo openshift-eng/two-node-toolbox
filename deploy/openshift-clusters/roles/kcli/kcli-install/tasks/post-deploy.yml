@@ -1,0 +1,90 @@
+---
+# Post-deployment tasks for kcli-install
+
+- name: Wait for cluster to be fully operational
+  pause:
+    seconds: 60
+    prompt: "Waiting for cluster to stabilize..."
+
+- name: Test cluster connectivity
+  command: oc --kubeconfig={{ kubeconfig_path }} cluster-info
+  register: cluster_info
+  retries: 5
+  delay: 30
+  until: cluster_info.rc == 0
+  failed_when: false
+
+- name: Display cluster information
+  debug:
+    msg: "{{ cluster_info.stdout }}"
+  when: cluster_info.rc == 0
+
+- name: Check cluster nodes
+  command: oc --kubeconfig={{ kubeconfig_path }} get nodes
+  register: cluster_nodes
+  when: cluster_info.rc == 0
+
+- name: Display cluster nodes
+  debug:
+    msg: "{{ cluster_nodes.stdout }}"
+  when: cluster_nodes is defined and cluster_nodes.rc == 0
+
+- name: Verify fencing configuration
+  command: oc --kubeconfig={{ kubeconfig_path }} get pods -n openshift-machine-api
+  register: machine_api_pods
+  when: cluster_info.rc == 0
+
+- name: Display machine API pods (should include fencing)
+  debug:
+    msg: "{{ machine_api_pods.stdout }}"
+  when: machine_api_pods is defined and machine_api_pods.rc == 0
+
+- name: Check cluster operators status
+  command: oc --kubeconfig={{ kubeconfig_path }} get co
+  register: cluster_operators
+  when: cluster_info.rc == 0
+
+- name: Display cluster operators status
+  debug:
+    msg: "{{ cluster_operators.stdout }}"
+  when: cluster_operators is defined and cluster_operators.rc == 0
+
+- name: Create kubeconfig symlink in current directory
+  file:
+    src: "{{ kubeconfig_path }}"
+    dest: "./kubeconfig-{{ test_cluster_name }}"
+    state: link
+  when: cluster_info.rc == 0
+
+- name: Clean up temporary files
+  file:
+    path: "{{ temp_dir.path }}"
+    state: absent
+  when: temp_dir is defined
+
+- name: Display final cluster access instructions
+  debug:
+    msg: |
+      =========================================
+      OpenShift Two-Node {{ topology|title }} Cluster Ready!
+      =========================================
+      
+      Cluster Name: {{ test_cluster_name }}
+      Topology: {{ topology }}
+      Domain: {{ domain }}
+      Kubeconfig: {{ kubeconfig_path }}
+      Local kubeconfig link: ./kubeconfig-{{ test_cluster_name }}
+      
+      To access your cluster:
+      export KUBECONFIG={{ kubeconfig_path }}
+      oc get nodes
+      
+      Or use the local symlink:
+      export KUBECONFIG=./kubeconfig-{{ test_cluster_name }}
+      
+      Web Console: https://console-openshift-console.apps.{{ test_cluster_name }}.{{ domain }}
+      
+      To delete the cluster later:
+      kcli delete cluster openshift {{ test_cluster_name }} --yes
+      =========================================
+  when: cluster_info.rc == 0 

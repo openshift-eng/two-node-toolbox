@@ -1,0 +1,16 @@
+# Computed variables for kcli-install role
+# These are derived from user-configurable defaults and should not be overridden
+
+# Cluster identification (use test_cluster_name for consistency)
+cluster_name: "{{ test_cluster_name }}"
+
+# Kubeconfig paths (consistent with install-dev role pattern)
+kubeconfig_path: "{{ ansible_user_dir }}/.kcli/clusters/{{ test_cluster_name }}/auth/kubeconfig"
+kubeadmin_password_path: "{{ ansible_user_dir }}/.kcli/clusters/{{ test_cluster_name }}/auth/kubeadmin-password"
+
+# Computed network configuration
+ksushy_ip: "{{ ansible_default_ipv4.address }}"
+
+# Topology-based computed values
+feature_set: "{{ 'TechPreviewNoUpgrade' if topology == 'arbiter' else 'DevPreviewNoUpgrade' }}"
+enable_arbiter: "{{ 'true' if topology == 'arbiter' else 'false' }}" 

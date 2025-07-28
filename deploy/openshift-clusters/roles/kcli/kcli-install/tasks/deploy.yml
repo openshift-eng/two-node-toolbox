@@ -1,0 +1,60 @@
+---
+# OpenShift cluster deployment with kcli
+
+- name: Set kcli deployment command
+  set_fact:
+    kcli_cmd: >
+      kcli create cluster openshift
+      --paramfile {{ kcli_params_file }}
+      {{ '--debug' if kcli_debug else '' }}
+      {{ test_cluster_name }}
+
+- name: Display deployment command
+  debug:
+    msg: "Executing: {{ kcli_cmd }}"
+
+- name: Deploy OpenShift cluster with kcli
+  command: "{{ kcli_cmd }}"
+  register: kcli_deploy_result
+  async: 7200  # 2 hours timeout
+  poll: 30
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+
+- name: Display deployment progress
+  debug:
+    msg: "{{ kcli_deploy_result.stdout_lines[-10:] if kcli_deploy_result.stdout_lines|length > 10 else kcli_deploy_result.stdout_lines }}"
+  when: kcli_deploy_result.stdout_lines is defined
+
+- name: Check deployment status
+  fail:
+    msg: "kcli deployment failed: {{ kcli_deploy_result.stderr }}"
+  when: kcli_deploy_result.rc != 0
+
+- name: Verify cluster deployment
+  command: kcli list vm --short
+  register: deployed_vms
+  changed_when: false
+
+- name: Confirm cluster VMs are running
+  debug:
+    msg: "Deployed VMs: {{ deployed_vms.stdout_lines | select('search', test_cluster_name) | list }}"
+
+- name: Verify kubeconfig exists
+  stat:
+    path: "{{ kubeconfig_path }}"
+  register: kubeconfig_stat
+
+- name: Fail if kubeconfig not found
+  fail:
+    msg: "Kubeconfig not found at {{ kubeconfig_path }}"
+  when: not kubeconfig_stat.stat.exists
+
+- name: Display cluster access information
+  debug:
+    msg: |
+      Cluster deployment completed successfully!
+      Cluster name: {{ test_cluster_name }}
+      Topology: {{ topology }}
+      Kubeconfig: {{ kubeconfig_path }}
+      To access the cluster, run: export KUBECONFIG={{ kubeconfig_path }} 

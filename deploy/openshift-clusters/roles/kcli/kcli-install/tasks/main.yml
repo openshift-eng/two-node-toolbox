@@ -1,0 +1,38 @@
+---
+# kcli-install role main tasks
+
+- name: Check prerequisites
+  include_tasks: prerequisites.yml
+
+- name: Validate configuration
+  include_tasks: validate.yml
+
+# PHASE 1: DEPLOYING - Update state before starting installation
+- name: Set cluster state to deploying
+  include_role:
+    name: config
+    tasks_from: cluster-state
+  vars:
+    cluster_state_phase: 'deploying'
+    installation_method: 'kcli'
+    default_playbook_name: 'kcli-install.yml'
+  when: install_dev_mode is defined and install_dev_mode == 'install'
+
+- name: Prepare deployment
+  include_tasks: prepare.yml
+
+- name: Deploy OpenShift cluster with kcli
+  include_tasks: deploy.yml
+
+- name: Post-deployment configuration
+  include_tasks: post-deploy.yml
+
+# PHASE 2: DEPLOYED - Update state after successful completion
+- name: Set cluster state to deployed
+  include_role:
+    name: config
+    tasks_from: cluster-state
+  vars:
+    cluster_state_phase: 'deployed'
+    installation_method: 'kcli'
+    default_playbook_name: 'kcli-install.yml' 
