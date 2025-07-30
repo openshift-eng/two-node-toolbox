@@ -56,6 +56,12 @@
     state: link
   when: cluster_info.rc == 0
 
+- name: Setup proxy configuration
+  include_role:
+    name: common
+    tasks_from: proxy
+  when: cluster_info.rc == 0
+
 - name: Clean up temporary files
   file:
     path: "{{ temp_dir.path }}"
