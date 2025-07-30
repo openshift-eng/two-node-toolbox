@@ -10,7 +10,7 @@
 # PHASE 1: DEPLOYING - Update state before starting installation
 - name: Set cluster state to deploying
   include_role:
-    name: config
+    name: common
     tasks_from: cluster-state
   vars:
     cluster_state_phase: 'deploying'
@@ -30,7 +30,7 @@
 # PHASE 2: DEPLOYED - Update state after successful completion
 - name: Set cluster state to deployed
   include_role:
-    name: config
+    name: common
     tasks_from: cluster-state
   vars:
     cluster_state_phase: 'deployed'

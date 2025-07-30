@@ -2,7 +2,7 @@
 # These are user-configurable defaults that can be overridden
 
 # Cluster configuration (consistent with install-dev role)
-test_cluster_name: tnf-cluster
+test_cluster_name: tnt-cluster
 topology: fencing  # "fencing" or "arbiter" 
 domain: lab.example.com
 cluster_network_type: OVNKubernetes
@@ -11,7 +11,7 @@ cluster_network_type: OVNKubernetes
 method: kcli
 install_dev_mode: install  # "install" or "redeploy"
 
-# Two-node cluster configuration (automatically set based on topology)
+# Two-node cluster configuration
 ctlplanes: 2
 workers: 0
 
@@ -32,9 +32,9 @@ network_name: default
 api_ip: ""  # Will be auto-detected if empty
 ingress_ip: ""  # Will use api_ip if empty
 
-# Authentication configuration
-pull_secret_path: "{{ ansible_user_dir }}/openshift_pull.json"
-ssh_public_key_path: "{{ ansible_user_dir }}/.ssh/id_rsa.pub"
+# Authentication configuration (consistent with install-dev role)
+pull_secret_path: "{{ ansible_user_dir }}/pull-secret.json"
+ssh_public_key_path: "{{ ansible_user_dir }}/.ssh/id_ed25519.pub"
 
 # BMC/Redfish configuration for fencing
 bmc_user: admin
@@ -43,7 +43,7 @@ bmc_driver: redfish  # "redfish" or "ipmi"
 ksushy_port: 8000
 
 # Arbiter-specific configuration (only used when topology == "arbiter") 
-arbiter_memory: 16384  # Memory for arbiter node
+# arbiter_memory: 16384  # Memory for arbiter node
 
 # State management (consistent with install-dev role)
 cluster_state_dir: "../aws-hypervisor/instance-data"

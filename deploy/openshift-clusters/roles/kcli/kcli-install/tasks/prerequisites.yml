@@ -1,5 +1,5 @@
 ---
-# Prerequisites check for kcli-install
+# Prerequisites check and installation for kcli-install
 
 - name: Check if kcli is installed
   command: which kcli
@@ -7,10 +7,24 @@
   failed_when: false
   changed_when: false
 
-- name: Fail if kcli is not installed
-  fail:
-    msg: "kcli is not installed. Please install kcli before running this playbook."
+- name: Install kcli using dnf (RHEL/Fedora/CentOS)
+  block:
+    - name: Enable kcli copr repository
+      command: dnf -y copr enable karmab/kcli
+      become: true
+
+    - name: Install kcli package
+      dnf:
+        name: kcli
+        state: present
+      become: true
   when: kcli_check.rc != 0
+
+- name: Verify kcli installation
+  command: which kcli
+  register: kcli_verify
+  failed_when: kcli_verify.rc != 0
+  changed_when: false
 
 - name: Check kcli version
   command: kcli version
@@ -24,7 +38,7 @@
 # Use common authentication validation
 - name: Validate authentication files
   include_role:
-    name: config
+    name: common
     tasks_from: validate-auth
 
 - name: Check available libvirt pools
