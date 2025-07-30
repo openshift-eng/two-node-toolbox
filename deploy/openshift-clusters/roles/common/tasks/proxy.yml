@@ -1,0 +1,96 @@
+---
+# Common proxy configuration tasks
+# These tasks set up a proxy container and environment for network-restricted deployments
+
+- name: get kubeconfig
+  fetch:
+    src: "{{kubeconfig_path}}"
+    dest: ./kubeconfig
+    flat: true
+
+- name: get kubeadmin-password
+  fetch:
+    src: "{{kubeadmin_password_path}}"
+    dest: ./kubeadmin-password
+    flat: true
+
+- name: create proxy environment
+  copy:
+    content: |
+      # Determine the directory where this proxy.env file is located
+      if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+          PROXY_ENV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+      else
+          # Fallback for when sourced without BASH_SOURCE (e.g., from different shells)
+          PROXY_ENV_DIR="$(pwd)"
+      fi
+
+      export EC2_PUBLIC_IP={{ hostvars[inventory_hostname]['inventory_hostname'].split('@')[1] }}
+      export PROXYPORT=8213
+      export HTTP_PROXY=http://${EC2_PUBLIC_IP}:${PROXYPORT}/
+      export HTTPS_PROXY=http://${EC2_PUBLIC_IP}:${PROXYPORT}/
+      export NO_PROXY="static.redhat.com,redhat.io,quay.io,openshift.org,openshift.com,svc,amazonaws.com,r2.cloudflarestorage.com,github.com,githubusercontent.com,google.com,googleapis.com,fedoraproject.org,cloudfront.net,localhost,127.0.0.1"
+
+      export http_proxy=http://${EC2_PUBLIC_IP}:${PROXYPORT}/
+      export https_proxy=http://${EC2_PUBLIC_IP}:${PROXYPORT}/
+      export no_proxy="static.redhat.com,redhat.io,quay.io,openshift.org,openshift.com,svc,amazonaws.com,r2.cloudflarestorage.com,github.com,googleapis.com,fedoraproject.org,cloudfront.net,localhost,127.0.0.1"
+      
+      # Set KUBECONFIG to the absolute path of kubeconfig file next to this proxy.env
+      export KUBECONFIG="${PROXY_ENV_DIR}/kubeconfig"
+      
+      # K8S_AUTH_PROXY for ansible kubernetes.core collection
+      export K8S_AUTH_PROXY=http://${EC2_PUBLIC_IP}:${PROXYPORT}/
+
+      # Display helpful information when sourced
+      echo "Proxy environment loaded from: ${PROXY_ENV_DIR}"
+      echo "KUBECONFIG set to: ${KUBECONFIG}"
+      
+      # Verify kubeconfig exists
+      if [[ ! -f "${KUBECONFIG}" ]]; then
+          echo "Warning: KUBECONFIG file not found at ${KUBECONFIG}"
+          echo "Make sure you're sourcing this file from the correct location or that the kubeconfig file exists."
+      else
+          echo "✓ KUBECONFIG file found"
+      fi
+    dest: "./proxy.env"
+  delegate_to: localhost
+
+- name: Install firewalld
+  dnf:
+    name: firewalld
+    state: present
+  become: true
+
+- name: Install podman
+  dnf:
+    name: podman
+    state: present
+  become: true
+
+- name: Copy squid config
+  copy:
+    dest: "~/squid.conf"
+    src: squid.conf
+
+- name: start firewalld
+  shell: |
+    sudo systemctl start firewalld
+
+- name: add proxy port to firewall
+  shell: |
+    sudo firewall-cmd --add-port=8213/tcp --permanent
+
+- name: reload firewall-cmd
+  shell: |
+    sudo firewall-cmd --reload
+
+- name: Create a proxy container
+  containers.podman.podman_container:
+    name: external-squid
+    image: quay.io/openshifttest/squid-proxy:multiarch
+    state: started
+    dns: "127.0.0.1"
+    restart_policy: always
+    net: host
+    volumes:
+      - "/home/ec2-user/squid.conf:/etc/squid/squid.conf" 

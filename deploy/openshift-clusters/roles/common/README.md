@@ -1,4 +1,4 @@
-# Config Role
+# Common Role
 
 Common configuration and utility tasks shared across OpenShift deployment roles.
 
@@ -16,7 +16,7 @@ Manages cluster deployment state tracking across different installation methods.
 ```yaml
 - name: Set cluster state to deploying
   include_role:
-    name: config
+    name: common
     tasks_from: cluster-state
   vars:
     cluster_state_phase: 'deploying'  # or 'deployed'
@@ -45,7 +45,7 @@ Validates authentication files required for OpenShift deployment.
 ```yaml
 - name: Validate authentication files
   include_role:
-    name: config
+    name: common
     tasks_from: validate-auth
 ```
 
@@ -55,6 +55,29 @@ Validates authentication files required for OpenShift deployment.
 
 **Optional Variables:**
 - `ocp_version`: OpenShift version (enables CI registry validation when set to 'ci')
+
+### proxy.yml
+
+Sets up proxy container and environment configuration for network-restricted deployments.
+
+**Usage:**
+```yaml
+- name: Setup proxy configuration
+  include_role:
+    name: common
+    tasks_from: proxy
+```
+
+**Required Variables:**
+- `kubeconfig_path`: Path to cluster kubeconfig file
+- `kubeadmin_password_path`: Path to kubeadmin password file
+
+**What it does:**
+- Fetches kubeconfig and kubeadmin-password files to local directory
+- Creates proxy.env environment file for easy proxy setup
+- Installs and configures firewalld and podman
+- Sets up squid proxy container with appropriate firewall rules
+- Configures proxy for port 8213 with OpenShift-specific domain allowlist
 
 ## Benefits
 
