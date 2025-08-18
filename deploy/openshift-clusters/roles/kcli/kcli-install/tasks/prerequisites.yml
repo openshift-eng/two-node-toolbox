@@ -35,11 +35,10 @@
   debug:
     msg: "Using kcli version: {{ kcli_version_output.stdout }}"
 
-# Use common authentication validation
+# Use config role for authentication validation
 - name: Validate authentication files
   include_role:
-    name: common
-    tasks_from: validate-auth
+    name: config
 
 - name: Check available libvirt pools
   command: kcli list pool

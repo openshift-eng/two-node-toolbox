@@ -56,11 +56,7 @@
     state: link
   when: cluster_info.rc == 0
 
-- name: Setup proxy configuration
-  include_role:
-    name: common
-    tasks_from: proxy
-  when: cluster_info.rc == 0
+# Proxy configuration removed - only supported in dev-scripts
 
 - name: Clean up temporary files
   file:
