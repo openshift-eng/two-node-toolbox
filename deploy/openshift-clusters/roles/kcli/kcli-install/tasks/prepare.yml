@@ -21,6 +21,26 @@
       when: force_cleanup
   when: force_cleanup
 
+# Authentication file preparation
+- name: Copy pull secret from files directory to remote host
+  copy:
+    src: "{{ pull_secret_path }}"
+    dest: "{{ ansible_user_dir }}/pull-secret.json"
+    mode: '0600'
+
+- name: Copy SSH public key from localhost to remote host
+  copy:
+    src: "~/.ssh/id_ed25519.pub"
+    dest: "{{ ansible_user_dir }}/.ssh/id_ed25519.pub"
+    mode: '0644'
+  when: ssh_key_stat.stat.exists
+
+- name: Display authentication file locations
+  debug:
+    msg: |
+      Using pull secret from: {{ ansible_user_dir }}/pull-secret.json
+      Using SSH key from: {{ ansible_user_dir }}/.ssh/id_ed25519.pub
+
 - name: Create temporary directory for kcli parameters
   tempfile:
     state: directory

@@ -1,0 +1,14 @@
+---
+# Main tasks for proxy-setup role
+
+- name: Fetch cluster credentials
+  include_tasks: credentials.yml
+
+- name: Create proxy environment configuration
+  include_tasks: environment.yml
+
+- name: Install and configure proxy infrastructure
+  include_tasks: infrastructure.yml
+
+- name: Setup and start proxy container
+  include_tasks: container.yml 

@@ -1,0 +1,29 @@
+---
+# Install and configure proxy infrastructure
+
+- name: Install firewalld
+  dnf:
+    name: firewalld
+    state: present
+  become: true
+
+- name: Install podman
+  dnf:
+    name: podman
+    state: present
+  become: true
+
+- name: Start firewalld service
+  systemd:
+    name: firewalld
+    state: started
+    enabled: true
+  become: true
+
+- name: Add proxy port to firewall
+  firewalld:
+    port: "{{ proxy_port }}/tcp"
+    permanent: true
+    state: enabled
+    immediate: true
+  become: true 

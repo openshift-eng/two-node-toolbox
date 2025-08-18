@@ -11,7 +11,7 @@ This role is equivalent to running:
 kcli create cluster openshift -P ctlplanes=2 -P version=ci -P tag='4.20' <cluster-name>
 ```
 
-But adds comprehensive validation, error checking, and post-deployment verification.
+But adds comprehensive validation and error checking.
 
 **Consistent with install-dev role**: This role follows the same patterns as the existing `install-dev` role, using identical variable names (`test_cluster_name`, `topology`) and state management for seamless integration.
 
@@ -20,20 +20,48 @@ Key features:
 - Configurable VM specifications and networking
 - Integration with kcli's BMC/Redfish simulation for fencing
 - Comprehensive validation and error checking
-- Post-deployment verification and cluster health checks
 - State management consistent with install-dev role
 - Support for both interactive and non-interactive deployment
+- Automatic proxy setup for cluster access in restricted environments
 
 ## Requirements
 
-- kcli installed and configured with a virtualization provider (KVM/libvirt recommended)
+### System Requirements
+
+- CentOS 9 or RHEL 9 host (Rocky Linux/Alma Linux supported on best effort basis)
+- Minimum 64GB RAM, 240GB storage for two nodes
+- User with passwordless sudo access
+- libvirt/KVM virtualization support enabled in BIOS
+- File system that supports d_type (required by dev-scripts)
+
+### Software Requirements
+
+- kcli installed and configured with a virtualization provider (KVM/libvirt)
+- libvirt virtualization stack (libvirt, qemu-kvm, libvirt-daemon-kvm)
 - OpenShift pull secret from Red Hat
   - For CI builds: Pull secret must include `registry.ci.openshift.org` access
   - Regular pull secret from console.redhat.com may not include CI registry access
-- SSH key pair for cluster access
-- Sufficient system resources (minimum 64GB RAM, 240GB storage for two nodes)
+- SSH key pair for cluster access (reads `~/.ssh/id_ed25519.pub` from ansible controller)
+  - Generate on local machine with: `ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519` if not present
 - Network connectivity for OpenShift image downloads
   - For CI builds: Access to `registry.ci.openshift.org`
+
+### Ansible Collections
+
+Required Ansible collections (install with `ansible-galaxy collection install -r collections/requirements.yml`):
+
+- `community.libvirt>=1.3.0`: For libvirt virtualization management
+- `kubernetes.core>=2.4.0`: For Kubernetes resource management
+- `containers.podman>=1.10.0`: For container operations
+
+**Note**: The role automatically installs and configures the complete libvirt virtualization stack if not already present.
+
+### Authentication File Handling
+
+This role follows the same authentication file conventions as the dev-scripts role for consistency:
+
+- **Pull Secret**: Must be placed in role `files/pull-secret.json` and will be automatically copied to remote host user home directory
+- **SSH Key**: Read from localhost (`~/.ssh/id_ed25519.pub` on ansible controller) and copied to remote host for kcli, plus installed as authorized key via config role
 
 ## Role Variables
 
@@ -42,8 +70,8 @@ Key features:
 - `test_cluster_name`: OpenShift cluster name (consistent with install-dev role)
 - `topology`: Cluster topology - "fencing" or "arbiter" (matches install-dev role)
 - `domain`: Base domain for the cluster
-- `pull_secret_path`: Path to OpenShift pull secret file
-- `ssh_public_key_path`: Path to SSH public key file
+- `pull_secret_path`: Path to OpenShift pull secret file in role files directory (default: `{{ role_path }}/files/pull-secret.json`)
+  - Place your pull secret as `pull-secret.json` in the `files/` directory
 
 ### Cluster Configuration
 
@@ -101,9 +129,16 @@ Key features:
 
 ## Dependencies
 
-- kcli package installed on the control node
-- Configured kcli virtualization provider
+The role automatically installs and configures:
+- libvirt virtualization stack (libvirt, qemu-kvm, libvirt-daemon-kvm, etc.)
+- kcli package from COPR repository
+- Required Ansible collections (community.libvirt, kubernetes.core)
+- Default kcli configuration for local KVM hypervisor
+- User permissions for libvirt group access
+
+External dependencies:
 - Access to Red Hat registry or disconnected registry
+- RHEL subscription or CentOS 9 package repositories
 
 ## Example Playbook
 
@@ -126,16 +161,24 @@ Key features:
 
 ### Interactive Mode (Default)
 
-1. Ensure kcli is installed and configured:
+1. Install required Ansible collections:
 ```bash
-kcli list pool
-kcli list network
+ansible-galaxy collection install -r collections/requirements.yml
 ```
 
-2. Download OpenShift pull secret to `~/pull-secret.json`
+2. Download OpenShift pull secret and place in role files directory:
+```bash
+# Navigate to the kcli-install files directory
+cd roles/kcli/kcli-install/files/
+
+# Create pull secret file (paste your pull secret content)
+cat > pull-secret.json << EOF
+{"auths":{"your-pull-secret-content-here"}}
+EOF
+```
    - For CI builds: Ensure pull secret includes `registry.ci.openshift.org` access
 
-3. Run the playbook (will prompt for topology):
+3. Run the playbook (will prompt for topology and automatically install prerequisites):
 ```bash
 ansible-playbook kcli-install.yml
 ```
@@ -144,13 +187,20 @@ ansible-playbook kcli-install.yml
 ```bash
 export KUBECONFIG=~/.kcli/clusters/edge-cluster-01/auth/kubeconfig
 oc get nodes
+
+# Or use proxy environment for remote access:
+source ./proxy.env
+oc get nodes
 ```
 
 ### Non-Interactive Mode
 
-For automation, specify topology and disable interactive mode:
+For automation, install collections and specify topology with disabled interactive mode:
 
 ```bash
+# Install collections
+ansible-galaxy collection install -r collections/requirements.yml
+
 # Deploy fencing cluster
 ansible-playbook kcli-install.yml \
   -e "topology=fencing" \
@@ -168,37 +218,6 @@ This role automates the equivalent of:
 ```bash
 kcli create cluster openshift -P ctlplanes=2 -P version=ci -P tag='4.20' <cluster-name>
 ```
-
-The role adds value through:
-- Pre-deployment validation and error checking
-- Automatic BMC/fencing configuration
-- Post-deployment verification
-- Consistent configuration management
-- Proper cleanup and error handling
-- State management consistent with install-dev role
-- Support for both fencing and arbiter topologies
-
-## Validation
-
-The role performs comprehensive validation:
-- kcli installation and configuration
-- OpenShift pull secret availability
-- SSH key accessibility
-- Resource requirements
-- Cluster naming conflicts
-- Two-node configuration compliance
-- CI registry access validation (for CI builds)
-- Topology-specific configuration validation
-
-## Post-Deployment
-
-After successful deployment:
-- Cluster kubeconfig is available at `~/.kcli/clusters/<cluster_name>/auth/kubeconfig`
-- Web console accessible at `https://console-openshift-console.apps.<cluster_name>.<domain>`
-- Fencing automatically configured for both control plane nodes (fencing topology)
-- Arbiter node configured for quorum management (arbiter topology)
-- All cluster operators should be available and healthy
-- Cluster state tracked in JSON format for consistency with install-dev role
 
 ## Cleanup
 

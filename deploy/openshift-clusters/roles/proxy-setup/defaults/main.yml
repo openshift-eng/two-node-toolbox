@@ -1,0 +1,22 @@
+---
+# Default variables for proxy-setup role
+
+# Proxy configuration
+proxy_port: 8213
+proxy_user: ec2-user
+
+# Container configuration
+proxy_container_name: external-squid
+proxy_image: quay.io/openshifttest/squid-proxy:multiarch
+
+# Network configuration
+proxy_no_proxy_list: "static.redhat.com,redhat.io,quay.io,openshift.org,openshift.com,svc,amazonaws.com,r2.cloudflarestorage.com,github.com,githubusercontent.com,google.com,googleapis.com,fedoraproject.org,cloudfront.net,localhost,127.0.0.1"
+
+# Cluster access configuration
+cluster_domains: 
+  - ".metalkube.org"
+  - ".ocpci.eng.rdu2.redhat.com" 
+  - ".okd.on.massopen.cloud"
+  - ".p1.openshiftapps.com"
+  - "sso.redhat.com"
+  - ".lab.example.com" 

@@ -39,9 +39,9 @@ ingress_ip: {{ ingress_ip }}
 {% endif %}
 
 # Authentication
-pull_secret: {{ pull_secret_path }}
+pull_secret: {{ ansible_user_dir }}/pull-secret.json
 keys:
-  - {{ ssh_public_key_path }}
+  - {{ ansible_user_dir }}/.ssh/id_ed25519.pub
 
 # BMC/Redfish configuration
 bmc_user: {{ bmc_user }}

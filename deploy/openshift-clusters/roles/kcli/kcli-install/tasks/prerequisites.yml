@@ -1,6 +1,154 @@
 ---
 # Prerequisites check and installation for kcli-install
 
+# Libvirt virtualization setup (required for kcli)
+- name: Install libvirt and virtualization packages
+  dnf:
+    name:
+      - libvirt
+      - libvirt-daemon-kvm
+      - libvirt-daemon-config-network
+      - qemu-kvm
+      - virt-install
+      - virt-viewer
+      - libvirt-python3
+      - acl
+    state: present
+  become: true
+
+- name: Start and enable libvirtd service
+  systemd:
+    name: libvirtd
+    state: started
+    enabled: true
+  become: true
+
+- name: Add user to libvirt group for virtualization access
+  user:
+    name: "{{ ansible_user_id }}"
+    groups: libvirt
+    append: true
+  become: true
+
+- name: Reset SSH connection for group membership to take effect
+  meta: reset_connection
+
+- name: Ensure libvirt default network is started
+  community.libvirt.virt_net:
+    command: start
+    name: default
+  become: true
+  ignore_errors: true
+
+# Configure libvirt storage pools
+- name: Check if default storage pool exists
+  command: virsh pool-list --all --name
+  register: existing_pools
+  changed_when: false
+  failed_when: false
+
+- name: Create default storage pool directory
+  file:
+    path: /var/lib/libvirt/images
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+  become: true
+  when: "'default' not in existing_pools.stdout_lines"
+
+- name: Set ACL permissions for user on libvirt images directory
+  acl:
+    path: /var/lib/libvirt/images
+    entity: "{{ ansible_user_id }}"
+    etype: user
+    permissions: rwx
+    state: present
+  become: true
+
+- name: Verify user can write to libvirt images directory
+  file:
+    path: /var/lib/libvirt/images/.kcli-test
+    state: touch
+    mode: '0644'
+  register: write_test
+  ignore_errors: true
+
+- name: Remove test file
+  file:
+    path: /var/lib/libvirt/images/.kcli-test
+    state: absent
+  when: write_test is succeeded
+
+- name: Fail if directory is not writable
+  fail:
+    msg: "User {{ ansible_user_id }} cannot write to /var/lib/libvirt/images directory"
+  when: write_test is failed
+
+- name: Define default libvirt storage pool
+  command: >
+    virsh pool-define-as default dir
+    --target /var/lib/libvirt/images
+  become: true
+  when: "'default' not in existing_pools.stdout_lines"
+  register: pool_define_result
+  failed_when: 
+    - pool_define_result.rc != 0
+    - "'already exists' not in pool_define_result.stderr"
+
+- name: Build default storage pool
+  command: virsh pool-build default
+  become: true
+  when: "'default' not in existing_pools.stdout_lines"
+  register: pool_build_result
+  failed_when: false
+
+- name: Start default storage pool (new pools)
+  command: virsh pool-start default
+  become: true
+  when: "'default' not in existing_pools.stdout_lines"
+  register: pool_start_new_result
+  failed_when:
+    - pool_start_new_result.rc != 0
+    - "'is already active' not in pool_start_new_result.stderr"
+
+- name: Set default storage pool to autostart
+  command: virsh pool-autostart default
+  become: true
+
+- name: Check if default pool is active (for existing pools)
+  command: virsh pool-info default
+  register: pool_status
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Start default storage pool if inactive
+  command: virsh pool-start default
+  become: true
+  when: 
+    - pool_status.rc == 0
+    - "'inactive' in pool_status.stdout or 'State:' not in pool_status.stdout or 'running' not in pool_status.stdout"
+  register: pool_start_existing_result
+  failed_when:
+    - pool_start_existing_result.rc != 0
+    - "'is already active' not in pool_start_existing_result.stderr"
+
+- name: Verify default storage pool is active
+  command: virsh pool-info default
+  register: pool_info
+  changed_when: false
+  become: true
+
+- name: Display storage pool information
+  debug:
+    msg: "Default storage pool status: {{ pool_info.stdout_lines }}"
+
+- name: Fail if default storage pool is not active
+  fail:
+    msg: "Default libvirt storage pool is not active. Pool info: {{ pool_info.stdout }}"
+  when: pool_info.rc != 0 or 'running' not in pool_info.stdout
+
 - name: Check if kcli is installed
   command: which kcli
   register: kcli_check
@@ -35,6 +183,47 @@
   debug:
     msg: "Using kcli version: {{ kcli_version_output.stdout }}"
 
+# Configure kcli with default local hypervisor if no config exists
+- name: Check if kcli config exists
+  stat:
+    path: "{{ ansible_user_dir }}/.kcli/config.yml"
+  register: kcli_config_stat
+
+- name: Create kcli config directory
+  file:
+    path: "{{ ansible_user_dir }}/.kcli"
+    state: directory
+    mode: '0755'
+  when: not kcli_config_stat.stat.exists
+
+- name: Create default kcli configuration for local libvirt
+  copy:
+    dest: "{{ ansible_user_dir }}/.kcli/config.yml"
+    content: |
+      default:
+        client: local
+      local:
+        type: kvm
+        host: 127.0.0.1
+    mode: '0644'
+  when: not kcli_config_stat.stat.exists
+
+# Verify libvirt connectivity
+- name: Test libvirt connection
+  command: virsh list --all
+  register: libvirt_test
+  changed_when: false
+  failed_when: false
+
+- name: Display libvirt connection status
+  debug:
+    msg: "Libvirt connection test: {{ 'SUCCESS' if libvirt_test.rc == 0 else 'FAILED - ' + libvirt_test.stderr }}"
+
+- name: Fail if libvirt is not accessible
+  fail:
+    msg: "Libvirt is not accessible. Error: {{ libvirt_test.stderr }}"
+  when: libvirt_test.rc != 0
+
 # Use config role for authentication validation
 - name: Validate authentication files
   include_role:
@@ -49,6 +238,13 @@
 - name: Display available pools
   debug:
     msg: "Available kcli pools: {{ kcli_pools.stdout_lines }}"
+
+- name: Verify kcli can see default pool
+  fail:
+    msg: "kcli cannot see the default storage pool. Available pools: {{ kcli_pools.stdout_lines }}"
+  when: 
+    - kcli_pools.rc == 0
+    - "'default' not in kcli_pools.stdout"
 
 - name: Check available networks
   command: kcli list network

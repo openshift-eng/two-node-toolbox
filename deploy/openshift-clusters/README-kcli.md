@@ -4,7 +4,7 @@ This guide covers deploying OpenShift two-node clusters using the kcli virtualiz
 
 ## Overview
 
-The kcli deployment method automates OpenShift two-node cluster creation with support for both **fencing** (now) and **arbiter** topologies (future release). It leverages kcli's OpenShift deployment capabilities to create production-ready clusters suitable for edge computing scenarios.
+The kcli deployment method automates OpenShift two-node cluster creation with support for both **fencing** (now) and **arbiter** topologies (future release).
 
 ## 1. Machine Requirements
 
@@ -18,34 +18,41 @@ The same prerequisites apply whether using dev-scripts or kcli deployment method
 
 ## 2. Prerequisites
 
-### kcli Installation
+### Ansible Collections
 
-The target host will need kcli installed and configured:
+Install required Ansible collections on the client machine (where you run ansible-playbook):
 
 ```bash
-# Install kcli (on target host)
-curl -s https://get.kcli.sh | bash
-# or 
-pip3 install kcli
-
-# Verify installation
-kcli list pool
-kcli list network
+ansible-galaxy collection install -r collections/requirements.yml
 ```
 
-If it's not already installed, the playbook will attempt to install it before proceeding. 
+This installs:
+- `community.libvirt`: For libvirt virtualization management  
+- `kubernetes.core`: For Kubernetes resource management
+- `containers.podman`: For container operations
+
+### Automated Installation
+
+The kcli-install role automatically handles target host setup including:
+- Complete libvirt virtualization stack installation
+- kcli package installation from COPR repository
+- Default kcli configuration for local KVM hypervisor
+- User permissions for libvirt group access
+
+No manual kcli installation is required on the target host. 
 
 ### OpenShift Requirements
 
 - **Pull Secret**: Download from https://cloud.redhat.com/openshift/install/pull-secret
   - For CI builds: Ensure pull secret includes `registry.ci.openshift.org` access
   - Standard pull secrets from console.redhat.com may not include CI registry access
-- **SSH Key**: For cluster access (default: `~/.ssh/id_rsa.pub`)
+- **SSH Key**: For cluster access (default: `~/.ssh/id_ed25519.pub`)
 
 ### Authentication File Setup
 
 #### Pull Secret
-Create a file named `pull-secret.json` in the `roles/kcli/kcli-install/files/` directory and paste your pull secret JSON string into it:
+
+Place your pull secret in the role files directory:
 
 ```bash
 # Navigate to the kcli-install files directory
@@ -57,13 +64,20 @@ cat > pull-secret.json << EOF
 EOF
 ```
 
-#### SSH Key (Optional)
-For convenience, your SSH public key can be placed in the same directory if using a non-standard location:
+The deployment will automatically copy the pull secret from the files directory to the remote host during deployment.
 
+#### SSH Key (Automatic from Localhost)
+The deployment automatically reads your SSH public key from `~/.ssh/id_ed25519.pub` on your **local machine** (ansible controller) and:
+1. Copies it to the remote host for kcli cluster deployment
+2. Installs it as an authorized key for SSH access
+
+If you don't have an SSH key on your local machine, generate one:
 ```bash
-# Copy your public key to the files directory (if not using default path)
-cp ~/.ssh/your-custom-key.pub roles/kcli/kcli-install/files/
+# Generate SSH key pair on your local machine
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519
 ```
+
+**Note**: The SSH key must exist on the machine where you run ansible, not on the remote host.
 
 ## 3. Configuration
 
@@ -104,9 +118,8 @@ vm_memory: 65536  # 64GB RAM
 vm_numcpus: 32    # 32 CPU cores
 vm_disk_size: 200 # 200GB disk
 
-# Custom authentication
-pull_secret_path: "/opt/secrets/production-pull-secret.json"
-ssh_public_key_path: "/opt/keys/production-cluster-key.pub"
+# Authentication: pull secret automatically read from role files/ directory
+# SSH key automatically read from ~/.ssh/id_ed25519.pub on localhost
 
 # Network configuration
 network_name: "production"
@@ -145,7 +158,7 @@ For one-off deployments or testing, define variables directly in the playbook:
     vm_memory: 32768
     vm_numcpus: 16
     ocp_tag: "4.20"
-    pull_secret_path: "{{ ansible_user_dir }}/pull-secret.json"
+    # Pull secret automatically read from role files/pull-secret.json
   roles:
     - kcli/kcli-install
 ```
@@ -182,7 +195,6 @@ The final value will be: **81920** (command line wins)
 | `test_cluster_name` | Cluster identifier | `"edge-cluster-01"` |
 | `topology` | Cluster type | `"fencing"` or `"arbiter"` |
 | `domain` | Base domain | `"edge.company.com"` |
-| `pull_secret_path` | Pull secret location | `"~/pull-secret.json"` |
 
 ### Common Configuration Variables
 
@@ -221,6 +233,9 @@ arbiter_memory: 16384  # Arbiter node memory (MB)
 The provided `kcli-install.yml` playbook supports interactive mode:
 
 ```bash
+# Install required Ansible collections
+ansible-galaxy collection install -r collections/requirements.yml
+
 # Update inventory with your target host
 cp inventory.ini.sample inventory.ini
 # Edit inventory.ini with your host details
@@ -237,9 +252,12 @@ The playbook will:
 
 ### Non-Interactive Deployment
 
-For automation, disable interactive prompts:
+For automation, install collections and disable interactive prompts:
 
 ```bash
+# Install required Ansible collections
+ansible-galaxy collection install -r collections/requirements.yml
+
 # Deploy fencing cluster
 ansible-playbook kcli-install.yml -i inventory.ini \
   -e "topology=fencing" \
@@ -332,13 +350,16 @@ vm_numcpus: 32
 vm_disk_size: 200
 ocp_version: "stable"
 ocp_tag: "4.19"
-pull_secret_path: "/opt/secrets/prod-pull-secret.json"
-ssh_public_key_path: "/opt/keys/prod-cluster-key.pub"
+# Pull secret automatically read from role files/pull-secret.json
+# SSH key automatically read from ~/.ssh/id_ed25519.pub on localhost
 ```
 
 ### CI/CD Integration
 
 ```bash
+# Install collections for CI environment
+ansible-galaxy collection install -r collections/requirements.yml
+
 # Automated CI deployment
 ansible-playbook kcli-install.yml \
   -i inventory.ini \
@@ -353,18 +374,20 @@ ansible-playbook kcli-install.yml \
 
 ### Common Issues
 
-**kcli not found:**
+**kcli installation issues:**
 ```bash
-# Verify kcli installation on target host
+# The role automatically installs kcli, but you can verify:
 ssh your-host "which kcli && kcli version"
+# Check libvirt connectivity
+ssh your-host "virsh list --all"
 ```
 
 **Pull secret issues:**
 ```bash
 # Verify pull secret format
-jq . < pull-secret.json
+jq . < roles/kcli/kcli-install/files/pull-secret.json
 # For CI builds, check registry access
-jq '.auths | has("registry.ci.openshift.org")' < pull-secret.json
+jq '.auths | has("registry.ci.openshift.org")' < roles/kcli/kcli-install/files/pull-secret.json
 ```
 
 **Resource constraints:**
@@ -380,15 +403,31 @@ ssh your-host "kcli list vm"
 ssh your-host "journalctl -u libvirtd"
 ```
 
-### Validation Commands
+### Monitoring Deployment Status
+
+Check the status of an ongoing kcli installation using kcli's internal tracking mechanisms, from inside the host where it is being deployed:
 
 ```bash
-# Verify cluster deployment
-export KUBECONFIG=~/.kcli/clusters/your-cluster/auth/kubeconfig
-oc get nodes
-oc get clusteroperators
-oc get bmh -A  # For fencing topology
+# List all clusters managed by kcli
+kcli list cluster
+
+# List VMs associated with your cluster
+kcli list vm | grep {cluster-name}
+
+# Check cluster directory exists and contents
+ls -la ~/.kcli/clusters/{cluster-name}/
+
+# Monitor the OpenShift installation log in real-time
+tail -f ~/.kcli/clusters/{cluster-name}/.openshift_install.log
 ```
+
+**Key status indicators:**
+- **Deployment started**: `~/.kcli/clusters/{cluster}/` directory exists
+- **Parameters configured**: `kcli_parameters.yml` file present
+- **VMs running**: VMs appear in `kcli list vm` output
+- **Installation progress**: Activity in `.openshift_install.log`
+- **Deployment complete**: `auth/kubeconfig` file created
+
 
 ### Force Cleanup and Retry
 
@@ -435,13 +474,4 @@ configs:
   ci: { ocp_version: "ci", ocp_tag: "4.21" }
 ```
 
-### Resource Scaling
-
-```yaml
-# Scale resources based on workload
-small: { vm_memory: 32768, vm_numcpus: 16, vm_disk_size: 120 }
-medium: { vm_memory: 49152, vm_numcpus: 24, vm_disk_size: 150 }
-large: { vm_memory: 65536, vm_numcpus: 32, vm_disk_size: 200 }
-```
-
-For additional advanced scenarios and troubleshooting, refer to the [kcli-install role documentation](roles/kcli/kcli-install/README.md). 
+For additional advanced scenarios and troubleshooting, refer to the [kcli-install role documentation](roles/kcli/kcli-install/README.md).

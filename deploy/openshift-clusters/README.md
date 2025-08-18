@@ -19,7 +19,14 @@ To use this guide, you will need a remote machine to run the cluster on and your
 This is the machine where you run the deployment scripts: all that's needed is Ansible.
 
 - Make sure you have the ansible-playbook command installed.
-- If you're missing the containers.podman collection, you can install it via: ansible-galaxy collection install containers.podman
+- Install required Ansible collections:
+  ```bash
+  ansible-galaxy collection install -r collections/requirements.yml
+  ```
+  This installs:
+  - `containers.podman`: For container operations
+  - `community.libvirt`: For libvirt virtualization management (kcli deployments)
+  - `kubernetes.core`: For Kubernetes resource management
 
 ### Remote Machine Requirements:
 

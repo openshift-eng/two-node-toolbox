@@ -15,7 +15,11 @@
 - name: Deploy OpenShift cluster with kcli
   include_tasks: deploy.yml
 
-- name: Post-deployment configuration
-  include_tasks: post-deploy.yml
+- name: Setup proxy access
+  include_role:
+    name: proxy-setup
+  vars:
+    kubeconfig_path: "{{ kubeconfig_path }}"
+    kubeadmin_password_path: "{{ kubeadmin_password_path }}"
 
 # Deployment completed 

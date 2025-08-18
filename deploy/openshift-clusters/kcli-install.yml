@@ -4,11 +4,17 @@
 
 - hosts: all
   gather_facts: yes
+
+  # Ensure required collections are installed:
+  # ansible-galaxy collection install -r collections/requirements.yml
+  collections:
+    - community.libvirt
+    - kubernetes.core
   
   # --- Variable Definitions ---
   vars:
     # By default, run in interactive mode. Automation will override this.
-    interactive_mode: true
+    interactive_mode: "{{ interactive_mode | default(true) }}"
     # Set default installation mode for normal installations
     install_dev_mode: 'install'
 

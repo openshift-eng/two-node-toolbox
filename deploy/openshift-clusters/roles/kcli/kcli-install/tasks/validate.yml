@@ -75,4 +75,43 @@
     msg: "Cluster {{ test_cluster_name }} already exists. Set force_cleanup=true to remove existing cluster first."
   when: 
     - test_cluster_name + '-ctlplane' in existing_vms.stdout
-    - not force_cleanup 
+    - not force_cleanup
+
+# Authentication file validation
+- name: Check if pull secret exists in files directory
+  stat:
+    path: "{{ pull_secret_path }}"
+  register: pull_secret_stat
+  delegate_to: localhost
+
+- name: Validate pull secret availability
+  fail:
+    msg: |
+      OpenShift pull secret not found at {{ pull_secret_path }}.
+      
+      Please create the pull secret file:
+      1. Navigate to: {{ role_path }}/files/
+      2. Create pull-secret.json with your pull secret content
+      
+      Get your pull secret from: https://cloud.redhat.com/openshift/install/pull-secret
+      For CI builds, ensure it includes registry.ci.openshift.org access.
+  when: not pull_secret_stat.stat.exists
+
+- name: Check if SSH public key exists on localhost (ansible controller)
+  stat:
+    path: "~/.ssh/id_ed25519.pub"
+  register: ssh_key_stat
+  delegate_to: localhost
+
+- name: Warn if SSH public key is missing on localhost
+  debug:
+    msg: |
+      WARNING: SSH public key not found at ~/.ssh/id_ed25519.pub on ansible controller.
+      
+      To generate a new SSH key pair on your local machine, run:
+        ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519
+      
+      This key will be installed as an authorized key on the remote host for cluster access.
+      Deployment will continue, but you may not be able to access cluster nodes via SSH.
+  delegate_to: localhost
+  when: not ssh_key_stat.stat.exists 

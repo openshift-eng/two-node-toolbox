@@ -33,8 +33,9 @@ api_ip: ""  # Will be auto-detected if empty
 ingress_ip: ""  # Will use api_ip if empty
 
 # Authentication configuration (consistent with install-dev role)
-pull_secret_path: "{{ ansible_user_dir }}/pull-secret.json"
-ssh_public_key_path: "{{ ansible_user_dir }}/.ssh/id_ed25519.pub"
+pull_secret_path: "{{ role_path }}/files/pull-secret.json"
+# SSH key is automatically handled by config role from ~/.ssh/id_ed25519.pub on localhost
+
 
 # BMC/Redfish configuration for fencing
 bmc_user: admin

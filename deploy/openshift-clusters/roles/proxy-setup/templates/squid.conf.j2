@@ -1,0 +1,6 @@
+acl cluster dstdomain {{ cluster_domains | join(' ') }}
+http_access allow cluster
+http_access deny all
+http_port {{ proxy_port }}
+debug_options ALL,2
+coredump_dir /var/spool/squid 

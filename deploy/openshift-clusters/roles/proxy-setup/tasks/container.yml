@@ -1,0 +1,19 @@
+---
+# Setup and start proxy container
+
+- name: Generate squid configuration from template
+  template:
+    dest: "~/squid.conf"
+    src: squid.conf.j2
+    mode: '0644'
+
+- name: Create squid proxy container
+  containers.podman.podman_container:
+    name: "{{ proxy_container_name }}"
+    image: "{{ proxy_image }}"
+    state: started
+    dns: "127.0.0.1"
+    restart_policy: always
+    network: host
+    volumes:
+      - "/home/{{ proxy_user }}/squid.conf:/etc/squid/squid.conf:Z" 
