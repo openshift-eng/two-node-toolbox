@@ -2,7 +2,7 @@
 # OpenShift Two-Node Cluster deployment using kcli
 # This playbook deploys a two-node OpenShift cluster with fencing or arbiter configuration
 
-- hosts: localhost
+- hosts: all
   gather_facts: yes
   
   # --- Variable Definitions ---
