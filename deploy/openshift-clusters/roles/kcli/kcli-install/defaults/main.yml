@@ -16,8 +16,8 @@ ctlplanes: 2
 workers: 0
 
 # OpenShift version configuration
-ocp_version: ci
-ocp_tag: '4.20'
+ocp_version: stable
+ocp_tag: '4.19'
 openshift_release_image: ""  # Optional: override with specific release image
 ci_token: ""  # Required for CI builds if not using OPENSHIFT_CI=true
 openshift_ci: false  # Set to true to avoid using CI_TOKEN (has side effects)
