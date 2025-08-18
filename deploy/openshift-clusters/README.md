@@ -60,7 +60,7 @@ The deployment process involves updating configuration files and running an Ansi
   > Note: The config.sh file is passed to metal-scripts. A full list of acceptable values can be found by checking the linked config_example.sh file in the [openshift-metal3/dev-scripts/config_example.sh](https://github.com/openshift-metal3/dev-scripts/blob/master/config_example.sh) repository.
 
 #### Pull secret
-- Create `pull-secret.json`: Create a file named pull-secret.json in the `roles/install-dev/files/` directory and paste your pull secret JSON string into it.
+- Create `pull-secret.json`: Create a file named pull-secret.json in the `roles/dev-scripts/install-dev/files/` directory and paste your pull secret JSON string into it.
 
 
 #### SSH access (optional)

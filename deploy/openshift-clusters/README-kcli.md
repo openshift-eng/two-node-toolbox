@@ -4,14 +4,7 @@ This guide covers deploying OpenShift two-node clusters using the kcli virtualiz
 
 ## Overview
 
-The kcli deployment method automates OpenShift two-node cluster creation with support for both **fencing** (now) and **arbiter** topologies (future released). It leverages kcli's OpenShift deployment capabilities to create production-ready clusters suitable for edge computing scenarios.
-
-**Key advantages of kcli approach:**
-- Simplified configuration management
-- Built-in validation and error checking
-- Automated BMC/fencing simulation
-- Support for multiple virtualization providers
-- Consistent variable management with existing dev-scripts workflows
+The kcli deployment method automates OpenShift two-node cluster creation with support for both **fencing** (now) and **arbiter** topologies (future release). It leverages kcli's OpenShift deployment capabilities to create production-ready clusters suitable for edge computing scenarios.
 
 ## 1. Machine Requirements
 
@@ -27,7 +20,7 @@ The same prerequisites apply whether using dev-scripts or kcli deployment method
 
 ### kcli Installation
 
-The target host must have kcli installed and configured:
+The target host will need kcli installed and configured:
 
 ```bash
 # Install kcli (on target host)
@@ -40,12 +33,37 @@ kcli list pool
 kcli list network
 ```
 
+If it's not already installed, the playbook will attempt to install it before proceeding. 
+
 ### OpenShift Requirements
 
 - **Pull Secret**: Download from https://cloud.redhat.com/openshift/install/pull-secret
   - For CI builds: Ensure pull secret includes `registry.ci.openshift.org` access
   - Standard pull secrets from console.redhat.com may not include CI registry access
 - **SSH Key**: For cluster access (default: `~/.ssh/id_rsa.pub`)
+
+### Authentication File Setup
+
+#### Pull Secret
+Create a file named `pull-secret.json` in the `roles/kcli/kcli-install/files/` directory and paste your pull secret JSON string into it:
+
+```bash
+# Navigate to the kcli-install files directory
+cd roles/kcli/kcli-install/files/
+
+# Create pull secret file (paste your pull secret content)
+cat > pull-secret.json << EOF
+{"auths":{"your-pull-secret-content-here"}}
+EOF
+```
+
+#### SSH Key (Optional)
+For convenience, your SSH public key can be placed in the same directory if using a non-standard location:
+
+```bash
+# Copy your public key to the files directory (if not using default path)
+cp ~/.ssh/your-custom-key.pub roles/kcli/kcli-install/files/
+```
 
 ## 3. Configuration
 
