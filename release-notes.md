@@ -1,5 +1,40 @@
 # Two-Node Toolbox Release Notes
 
+## Version 0.5.2 - KCLI Deployment Integration  
+*Release Date: August 2025*
+
+### New Features
+
+#### KCLI Alternative Deployment Method
+- Added `kcli-install` role providing alternative deployment method using kcli virtualization management tool
+- Support for both fencing and arbiter topologies with kcli-based deployment
+- Automated libvirt virtualization stack and kcli installation from COPR repository
+- Integration with kcli's BMC/Redfish simulation for fencing configuration
+- Pacemaker fencing configuration available via `kcli-redfish.yml` playbook for TNF clusters
+
+#### Modular Proxy Setup
+- Refactored proxy functionality into dedicated `proxy-setup` role
+- Separate task files for credentials, environment, infrastructure, and container management
+
+#### KCLI Deployment
+```bash
+# Non-interactive fencing deployment
+ansible-playbook kcli-install.yml -i inventory.ini
+```
+
+If you are installing a TNF cluster, Pacemaker configuration is done automatically. To do it manually:
+```bash
+# Configure pacemaker fencing for TNF clusters
+ansible-playbook kcli-redfish.yml -i inventory.ini
+```
+
+### Limitations
+
+#### KCLI Deployment Constraints
+- **Manual Execution Required**: KCLI deployment not integrated with make command system
+- **No Cluster Management**: KCLI clusters not supported by existing start/stop/cleanup tools
+
+---
 ## Version 0.5.1 - Agent-Based Installation Support
 *Release Date: August 2025*
 
@@ -20,7 +55,6 @@
 
 - Updated READMEs with Agent-based installation options
 - Enhanced configuration examples with method-specific sections
-
 ---
 
 ## Version 0.5 - Instance and Cluster Lifecycle Management
