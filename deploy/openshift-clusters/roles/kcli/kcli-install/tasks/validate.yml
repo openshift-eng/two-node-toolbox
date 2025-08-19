@@ -60,7 +60,7 @@
   when: ocp_version == "ci"
 
 - name: Check if cluster already exists
-  command: kcli list vm --short
+  command: kcli list vm
   register: existing_vms
   changed_when: false
   failed_when: false
@@ -68,13 +68,13 @@
 - name: Warn if cluster VMs already exist
   debug:
     msg: "WARNING: VMs for cluster {{ test_cluster_name }} may already exist. Use force_cleanup=true to remove them."
-  when: test_cluster_name + '-ctlplane' in existing_vms.stdout
+  when: existing_vms.stdout_lines | select('search', test_cluster_name + '-ctlplane') | list | length > 0
 
 - name: Fail if cluster exists and force_cleanup is false
   fail:
     msg: "Cluster {{ test_cluster_name }} already exists. Set force_cleanup=true to remove existing cluster first."
   when: 
-    - test_cluster_name + '-ctlplane' in existing_vms.stdout
+    - existing_vms.stdout_lines | select('search', test_cluster_name + '-ctlplane') | list | length > 0
     - not force_cleanup
 
 # Authentication file validation
