@@ -1,0 +1,19 @@
+# kcli-redfish role default variables
+
+# SSL configuration for ksushy (simulated BMC)
+ssl_insecure_param: "ssl_insecure=1"
+
+# Default values that can be overridden with -e parameters
+# These will be set to reasonable defaults if not provided
+
+# Cluster configuration (uses kcli-install defaults)
+test_cluster_name: ""  # Will be set to kcli-install default (tnt-cluster)
+ksushy_ip: ""  # Will be set to 192.168.122.1 (standard libvirt gateway)
+ksushy_port: 9000  # Standard ksushy systemd service port
+
+# BMC credentials (uses kcli-install defaults)
+bmc_user: ""  # Will be set to kcli-install default (admin)
+bmc_password: ""  # Will be set to kcli-install default (admin123)
+
+# Cluster node naming pattern for kcli deployments  
+node_name_pattern: "{{ test_cluster_name }}-ctlplane" 

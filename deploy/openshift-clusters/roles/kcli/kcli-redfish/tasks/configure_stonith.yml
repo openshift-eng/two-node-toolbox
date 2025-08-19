@@ -1,0 +1,74 @@
+---
+# Configure stonith for a single node in kcli deployment
+# Variables available: current_node_name
+
+- name: Calculate VM index for node {{ current_node_name }}
+  set_fact:
+    # Extract the numeric index from node name pattern
+    # kcli creates nodes like: clustername-ctlplane-0, clustername-ctlplane-1
+    # Node names are like: clustername-ctlplane-0.domain.com
+    vm_index: "{{ current_node_name | regex_replace(test_cluster_name + '-ctlplane-([0-9]+)\\..*', '\\1') }}"
+
+- name: Set BMC endpoint details for node {{ current_node_name }}
+  set_fact:
+    bmc_ip: "{{ ksushy_ip }}"
+    bmc_port: "{{ ksushy_port }}"
+    # ksushy creates predictable system IDs based on VM names (without domain)
+    # Uses local/ prefix for ksushy systemd service
+    bmc_system_id: "local/{{ test_cluster_name }}-ctlplane-{{ vm_index }}"
+    stonith_resource_name: "{{ current_node_name }}_redfish"
+
+- name: Display BMC configuration for node {{ current_node_name }}
+  debug:
+    msg: |
+      Node: {{ current_node_name }}
+      BMC IP: {{ bmc_ip }}:{{ bmc_port }}
+      System ID: {{ bmc_system_id }}
+      Stonith Resource: {{ stonith_resource_name }}
+
+- name: Check if stonith resource already exists for node {{ current_node_name }}
+  ansible.builtin.shell: |
+    oc debug node/{{ current_node_name }} -- chroot /host bash -c "pcs stonith status {{ stonith_resource_name }}"
+  register: pcs_stonith_status_result
+  failed_when: false
+  no_log: true
+  environment:
+    KUBECONFIG: "{{ proxy_kubeconfig | default(omit) }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default(omit) }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default(omit) }}"
+    NO_PROXY: "{{ proxy_no_proxy | default(omit) }}"
+
+- name: Create stonith resource for node {{ current_node_name }}
+  ansible.builtin.shell: |
+    oc debug node/{{ current_node_name }} -- chroot /host bash -c "pcs stonith create {{ stonith_resource_name }} fence_redfish \
+      username={{ bmc_user }} password={{ bmc_password }} \
+      ip={{ bmc_ip }} ipport={{ bmc_port }} \
+      systems_uri=/redfish/v1/Systems/{{ bmc_system_id }} \
+      pcmk_host_list={{ current_node_name }} ssl_insecure=1"
+  no_log: true
+  register: pcs_stonith_create_result
+  when: pcs_stonith_status_result.rc != 0
+  environment:
+    KUBECONFIG: "{{ proxy_kubeconfig | default(omit) }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default(omit) }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default(omit) }}"
+    NO_PROXY: "{{ proxy_no_proxy | default(omit) }}"
+
+- name: Report stonith resource creation status for node {{ current_node_name }}
+  debug:
+    msg: |
+      {% if pcs_stonith_status_result.rc == 0 %}
+      Stonith resource {{ stonith_resource_name }} already exists for node {{ current_node_name }}
+      {% elif pcs_stonith_create_result is defined and pcs_stonith_create_result.rc == 0 %}
+      Successfully created stonith resource {{ stonith_resource_name }} for node {{ current_node_name }}
+      {% else %}
+      Failed to create stonith resource {{ stonith_resource_name }} for node {{ current_node_name }}
+      {% endif %}
+
+- name: Fail if stonith resource creation failed
+  fail:
+    msg: "Failed to create stonith resource for node {{ current_node_name }}: {{ pcs_stonith_create_result.stderr | default('Unknown error') }}"
+  when:
+    - pcs_stonith_status_result.rc != 0
+    - pcs_stonith_create_result is defined
+    - pcs_stonith_create_result.rc != 0 

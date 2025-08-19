@@ -1,0 +1,98 @@
+---
+- name: Configure PCS Stonith for kcli-deployed clusters using simulated Redfish BMC
+  hosts: localhost # This playbook runs on the Ansible control node
+  connection: local
+  gather_facts: false # No need to gather facts for localhost
+
+  # Ensure the kubernetes.core collection is installed:
+  # ansible-galaxy collection install kubernetes.core
+  collections:
+    - kubernetes.core
+
+  vars:
+    # Set environment variables from proxy.env file
+    proxy_env_vars: {}
+
+  tasks:
+    - name: Source proxy environment and run kcli-redfish role
+      block:
+        - name: Check if proxy.env file exists
+          stat:
+            path: "./proxy.env"
+          register: proxy_env_file
+
+        - name: Handle proxy.env file presence
+          block:
+            - name: Set environment variables from proxy.env
+              shell: |
+                source ./proxy.env
+                echo "KUBECONFIG=$KUBECONFIG"
+                echo "K8S_AUTH_PROXY=$K8S_AUTH_PROXY"
+                echo "HTTP_PROXY=$HTTP_PROXY"
+                echo "HTTPS_PROXY=$HTTPS_PROXY"
+                echo "NO_PROXY=$NO_PROXY"
+              register: env_vars_output
+              changed_when: false
+
+            - name: Extract environment variables
+              set_fact:
+                proxy_env_vars:
+                  KUBECONFIG: "{{ env_vars_output.stdout_lines | select('match', '^KUBECONFIG=.*') | first | regex_replace('^KUBECONFIG=', '') }}"
+                  K8S_AUTH_PROXY: "{{ env_vars_output.stdout_lines | select('match', '^K8S_AUTH_PROXY=.*') | first | regex_replace('^K8S_AUTH_PROXY=', '') }}"
+                  HTTP_PROXY: "{{ env_vars_output.stdout_lines | select('match', '^HTTP_PROXY=.*') | first | regex_replace('^HTTP_PROXY=', '') }}"
+                  HTTPS_PROXY: "{{ env_vars_output.stdout_lines | select('match', '^HTTPS_PROXY=.*') | first | regex_replace('^HTTPS_PROXY=', '') }}"
+                  NO_PROXY: "{{ env_vars_output.stdout_lines | select('match', '^NO_PROXY=.*') | first | regex_replace('^NO_PROXY=', '') }}"
+
+            - name: Include kcli-redfish role with proxy environment variables
+              include_role:
+                name: kcli/kcli-redfish
+              vars:
+                proxy_kubeconfig: "{{ proxy_env_vars.KUBECONFIG }}"
+                proxy_k8s_auth_proxy: "{{ proxy_env_vars.K8S_AUTH_PROXY }}"
+                proxy_http_proxy: "{{ proxy_env_vars.HTTP_PROXY }}"
+                proxy_https_proxy: "{{ proxy_env_vars.HTTPS_PROXY }}"
+                proxy_no_proxy: "{{ proxy_env_vars.NO_PROXY }}"
+
+            - name: Proxy environment configuration used
+              debug:
+                msg: |
+                 
+                  Using proxy.env file for cluster access configuration.
+                  Proxy settings have been applied to the kcli-redfish role.
+
+          when: proxy_env_file.stat.exists
+
+        - name: Handle direct cluster access (no proxy.env)
+          block:
+            - name: No proxy environment detected
+              debug:
+                msg: |
+                 
+                  proxy.env file not found. Assuming direct cluster access.
+                  The kcli-redfish role will run without proxy configuration.
+                  
+                  Note: Ensure your current environment has:
+                  - Valid KUBECONFIG environment variable or ~/.kube/config
+                  - Direct network access to the OpenShift cluster API
+
+            - name: Include kcli-redfish role for direct cluster access
+              include_role:
+                name: kcli/kcli-redfish
+
+          when: not proxy_env_file.stat.exists
+
+      rescue:
+        - name: Handle kcli-redfish configuration errors
+          debug:
+            msg: |
+              An error occurred while running kcli-redfish configuration.
+              Error details: {{ ansible_failed_result.msg | default('Unknown error') }}
+              
+              Common issues:
+              1. Ensure cluster is deployed with kcli and fencing topology
+              2. Verify ksushy BMC simulator is running on the hypervisor
+              3. Check that kcli clusters are running: kcli list cluster
+              4. Verify you're running this on the correct inventory host (hypervisor)
+              
+              You can override auto-detection with explicit variables:
+              ansible-playbook kcli-redfish.yml -e "test_cluster_name=your-cluster" 

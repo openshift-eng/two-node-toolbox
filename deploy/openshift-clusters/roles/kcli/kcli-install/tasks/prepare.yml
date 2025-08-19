@@ -72,6 +72,26 @@
   set_fact:
     kcli_params_file: "{{ temp_dir.path }}/kcli-params.yml"
 
+- name: Set ksushy IP for BMC simulation based on topology
+  set_fact:
+    ksushy_ip: >-
+      {% if topology == "fencing" %}
+      {{ ksushy_ip | default('192.168.122.1') }}
+      {% else %}
+      {{ ksushy_ip | default(ansible_default_ipv4.address) }}
+      {% endif %}
+
+- name: Display ksushy configuration
+  debug:
+    msg: |
+      Network configuration for ksushy BMC simulator:
+      ksushy IP: {{ ksushy_ip }}
+      Topology: {{ topology }}
+      {% if topology == "fencing" %}
+      Note: Using libvirt bridge IP for VM-accessible BMC simulation
+      {% endif %}
+      (Override with -e "ksushy_ip=X.X.X.X" if needed)
+
 - name: Generate kcli parameter file
   template:
     src: kcli-params.yml.j2

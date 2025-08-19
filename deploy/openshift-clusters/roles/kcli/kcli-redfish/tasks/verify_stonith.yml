@@ -1,0 +1,44 @@
+---
+# Verify and enable stonith globally
+
+- name: Enable stonith globally (run on first node)
+  ansible.builtin.shell: |
+    oc debug node/{{ node_names[0] }} -- chroot /host bash -c "pcs property set stonith-enabled=true"
+  register: pcs_stonith_enable_result
+  environment:
+    KUBECONFIG: "{{ proxy_kubeconfig | default(omit) }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default(omit) }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default(omit) }}"
+    NO_PROXY: "{{ proxy_no_proxy | default(omit) }}"
+
+- name: Verify stonith is enabled
+  ansible.builtin.shell: |
+    oc debug node/{{ node_names[0] }} -- chroot /host bash -c "pcs property show stonith-enabled"
+  register: pcs_stonith_verify_result
+  environment:
+    KUBECONFIG: "{{ proxy_kubeconfig | default(omit) }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default(omit) }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default(omit) }}"
+    NO_PROXY: "{{ proxy_no_proxy | default(omit) }}"
+
+- name: Display stonith status
+  debug:
+    msg: |
+      Stonith enable result: {{ pcs_stonith_enable_result.stdout | default('No output') }}
+      Stonith verification: {{ pcs_stonith_verify_result.stdout | default('No output') }}
+
+- name: List all stonith resources
+  ansible.builtin.shell: |
+    oc debug node/{{ node_names[0] }} -- chroot /host bash -c "pcs stonith status"
+  register: pcs_stonith_list_result
+  environment:
+    KUBECONFIG: "{{ proxy_kubeconfig | default(omit) }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default(omit) }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default(omit) }}"
+    NO_PROXY: "{{ proxy_no_proxy | default(omit) }}"
+
+- name: Display final stonith configuration
+  debug:
+    msg: |
+      Final stonith configuration:
+      {{ pcs_stonith_list_result.stdout | default('No stonith resources found') }} 

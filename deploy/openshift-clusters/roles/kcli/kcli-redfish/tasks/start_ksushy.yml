@@ -1,0 +1,51 @@
+---
+# Start ksushy BMC simulator for fencing support
+
+- name: Check if ksushy is already running
+  shell: "ps aux | grep -v grep | grep ksushy"
+  register: ksushy_running
+  failed_when: false
+  changed_when: false
+  delegate_to: "{{ inventory_hostname }}"
+
+- name: Create ksushy systemd service
+  shell: "KSUSHY_LISTEN_PORT={{ ksushy_port }} kcli create sushy-service"
+  when: ksushy_running.rc != 0
+  delegate_to: "{{ inventory_hostname }}"
+
+- name: Ensure firewall allows ksushy port (runtime)
+  shell: "sudo firewall-cmd --add-port={{ ksushy_port }}/tcp --zone=libvirt"
+  when: ksushy_running.rc != 0
+  delegate_to: "{{ inventory_hostname }}"
+
+- name: Ensure firewall allows ksushy port (permanent)
+  shell: "sudo firewall-cmd --permanent --add-port={{ ksushy_port }}/tcp --zone=libvirt"
+  when: ksushy_running.rc != 0
+  delegate_to: "{{ inventory_hostname }}"
+
+- name: Wait for ksushy to start
+  wait_for:
+    port: "{{ ksushy_port }}"
+    host: "{{ ksushy_ip }}"
+    delay: 2
+    timeout: 30
+  when: ksushy_running.rc != 0
+
+- name: Test ksushy BMC endpoint accessibility
+  shell: "curl -s -k 'https://{{ ksushy_ip }}:{{ ksushy_port }}/redfish/v1/Systems/local' --connect-timeout 5 | head -1"
+  register: ksushy_test
+  failed_when: false
+  delegate_to: "{{ inventory_hostname }}"
+
+- name: Display ksushy status
+  debug:
+    msg: |
+      {% if ksushy_running.rc == 0 %}
+      ksushy BMC simulator was already running
+      {% else %}
+      ksushy BMC simulator started successfully on {{ ksushy_ip }}:{{ ksushy_port }}
+      {% endif %}
+      
+      BMC endpoints for {{ test_cluster_name }}:
+      - https://{{ ksushy_ip }}:{{ ksushy_port }}/redfish/v1/Systems/{{ test_cluster_name }}-ctlplane-0
+      - https://{{ ksushy_ip }}:{{ ksushy_port }}/redfish/v1/Systems/{{ test_cluster_name }}-ctlplane-1

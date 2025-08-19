@@ -8,8 +8,8 @@ cluster_name: "{{ test_cluster_name }}"
 kubeconfig_path: "{{ ansible_user_dir }}/.kcli/clusters/{{ test_cluster_name }}/auth/kubeconfig"
 kubeadmin_password_path: "{{ ansible_user_dir }}/.kcli/clusters/{{ test_cluster_name }}/auth/kubeadmin-password"
 
-# Computed network configuration
-ksushy_ip: "{{ ansible_default_ipv4.address }}"
+# Network configuration - ksushy_ip is now dynamically detected in deploy task
+# based on libvirt network configuration instead of using ansible_default_ipv4.address
 
 # Topology-based computed values
 feature_set: "{{ 'TechPreviewNoUpgrade' if topology == 'arbiter' else 'DevPreviewNoUpgrade' }}"

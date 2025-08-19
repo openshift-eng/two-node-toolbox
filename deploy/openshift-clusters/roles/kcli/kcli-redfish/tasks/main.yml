@@ -1,0 +1,86 @@
+---
+# kcli-redfish role main tasks
+# Configures stonith fencing for kcli-deployed clusters
+
+- name: Load kcli-install role defaults for consistent configuration
+  include_vars:
+    file: "{{ playbook_dir }}/roles/kcli/kcli-install/defaults/main.yml"
+    name: kcli_install_defaults
+
+- name: Set defaults for kcli fencing configuration
+  set_fact:
+    test_cluster_name: "{{ kcli_install_defaults.test_cluster_name }}"
+    ksushy_ip: "192.168.122.1"
+    bmc_user: "{{ kcli_install_defaults.bmc_user }}"
+    bmc_password: "{{ kcli_install_defaults.bmc_password }}"
+    ksushy_port: "{{ kcli_install_defaults.ksushy_port }}"
+  when: test_cluster_name is not defined or test_cluster_name == ""
+
+- name: Display configuration
+  debug:
+    msg: |
+      kcli fencing configuration:
+      Cluster Name: {{ test_cluster_name }}
+      Hypervisor IP: {{ ksushy_ip }}
+      BMC User: {{ bmc_user }}
+      BMC Port: {{ ksushy_port }}
+      
+      Override with: ansible-playbook kcli-redfish.yml -e "test_cluster_name=my-cluster" -e "ksushy_ip=X.X.X.X"
+
+- name: Start ksushy BMC simulator
+  include_tasks: start_ksushy.yml
+  vars:
+    # Set inventory_hostname for hypervisor delegation
+    inventory_hostname: "{{ groups['metal_machine'][0] if groups['metal_machine'] is defined else 'localhost' }}"
+
+- name: Validate configuration
+  assert:
+    that:
+      - test_cluster_name != ""
+      - ksushy_ip != ""
+      - bmc_user != ""
+      - bmc_password != ""
+    fail_msg: |
+      Missing required configuration:
+      - Cluster name: {{ test_cluster_name }}
+      - Hypervisor IP: {{ ksushy_ip }}
+      - BMC User: {{ bmc_user }}
+      - BMC Password: [{{ 'SET' if bmc_password != '' else 'MISSING' }}]
+
+- name: Get cluster nodes
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Node
+    label_selectors:
+      - "node-role.kubernetes.io/control-plane="
+  register: cluster_nodes
+  environment:
+    KUBECONFIG: "{{ proxy_kubeconfig | default(omit) }}"
+    K8S_AUTH_PROXY: "{{ proxy_k8s_auth_proxy | default(omit) }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default(omit) }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default(omit) }}"
+    NO_PROXY: "{{ proxy_no_proxy | default(omit) }}"
+
+- name: Validate cluster nodes found
+  assert:
+    that:
+      - cluster_nodes.resources is defined
+      - cluster_nodes.resources | length > 0
+    fail_msg: "No control plane nodes found in the cluster"
+
+- name: Extract node names
+  set_fact:
+    node_names: "{{ cluster_nodes.resources | map(attribute='metadata.name') | list }}"
+
+- name: Display discovered nodes
+  debug:
+    msg: "Found cluster nodes: {{ node_names }}"
+
+- name: Configure stonith for each node
+  include_tasks: configure_stonith.yml
+  loop: "{{ node_names }}"
+  loop_control:
+    loop_var: current_node_name
+
+- name: Verify stonith configuration
+  include_tasks: verify_stonith.yml 

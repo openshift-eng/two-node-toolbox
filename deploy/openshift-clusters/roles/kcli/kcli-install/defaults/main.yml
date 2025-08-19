@@ -40,7 +40,7 @@ pull_secret_path: "{{ role_path }}/files/pull-secret.json"
 bmc_user: admin
 bmc_password: admin123
 bmc_driver: redfish  # "redfish" or "ipmi"
-ksushy_port: 8000
+ksushy_port: 9000
 
 # Arbiter-specific configuration (only used when topology == "arbiter") 
 # arbiter_memory: 16384  # Memory for arbiter node

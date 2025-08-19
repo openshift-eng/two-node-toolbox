@@ -265,48 +265,66 @@ The existing `redfish.yml` playbook **will not work** with kcli deployments beca
 
 ### kcli Fencing Configuration
 
-Use the specialized `kcli-redfish.yml` playbook designed for kcli deployments:
+Use the specialized `kcli-redfish.yml` playbook designed for kcli deployments. **All configuration is automatically detected** - no manual variables required:
 
 ```bash
-# Configure fencing for kcli-deployed cluster
-ansible-playbook kcli-redfish.yml -i inventory.ini \
-  -e "test_cluster_name=your-cluster-name" \
-  -e "ksushy_ip=$(ansible_host_ip)" \
-  -e "bmc_user=admin" \
-  -e "bmc_password=admin123"
+# Configure fencing for kcli-deployed cluster (fully automatic)
+ansible-playbook kcli-redfish.yml -i inventory.ini
 ```
 
-The kcli-redfish playbook will:
-1. Discover cluster nodes from the OpenShift API
-2. Calculate BMC endpoints using the ksushy simulator configuration  
-3. Configure PCS stonith resources on each node
-4. Enable stonith globally in the cluster
+The kcli-redfish playbook automatically:
+1. **Detects cluster name** from running kcli clusters or kcli-install defaults
+2. **Uses hypervisor IP** from ansible inventory host  
+3. **Pulls BMC credentials** from kcli-install role defaults
+4. **Discovers cluster nodes** from the OpenShift API
+5. **Calculates BMC endpoints** using the ksushy simulator configuration
+6. **Configures PCS stonith resources** on each node
+7. **Enables stonith globally** in the cluster
 
-### Required Variables for kcli Fencing
+### Default Configuration
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `test_cluster_name` | Name of your kcli cluster | `"edge-cluster-01"` |
-| `ksushy_ip` | IP of the hypervisor running ksushy | `"192.168.1.100"` |
-| `bmc_user` | BMC username from kcli config | `"admin"` |
-| `bmc_password` | BMC password from kcli config | `"admin123"` |
+The playbook uses reasonable defaults that work for typical kcli deployments:
 
-### Automatic Variables
+| Variable | Default Value | Description |
+|----------|---------------|-------------|
+| `test_cluster_name` | `tnt-cluster` | From kcli-install defaults |
+| `ksushy_ip` | `192.168.122.1` | Standard libvirt network gateway |
+| `bmc_user` | `admin` | From kcli-install defaults |
+| `bmc_password` | `admin123` | From kcli-install defaults |
+| `ksushy_port` | `8000` | From kcli-install defaults |
 
-The kcli deployment automatically configures these values, which are used by the fencing setup:
-- `ksushy_port`: Port for BMC simulator (default: 8000)
-- BMC system IDs based on VM names (`{cluster-name}-ctlplane-{index}`)
+These defaults work for standard kcli deployments where VMs use the default libvirt network (`192.168.122.x/24`).
+
+### Manual Override (Optional)
+
+Override any default values as needed:
+
+```bash
+# Override cluster name for different cluster
+ansible-playbook kcli-redfish.yml -i inventory.ini \
+  -e "test_cluster_name=production-cluster"
+
+# Override network configuration for custom setup
+ansible-playbook kcli-redfish.yml -i inventory.ini \
+  -e "ksushy_ip=10.0.100.1"
+
+# Override multiple values
+ansible-playbook kcli-redfish.yml -i inventory.ini \
+  -e "test_cluster_name=edge-cluster" \
+  -e "ksushy_ip=172.16.1.1" \
+  -e "bmc_password=secure123"
+```
 
 ### Why Not Use redfish.yml?
 
-**Do NOT use the `redfish.yml` playbook** with kcli deployments. It will fail because:
+**Do not use the `redfish.yml` playbook** with kcli deployments. It will fail because:
 
 ```bash
 # This will fail for kcli deployments
-ansible-playbook redfish.yml  # ❌ Expects BMH resources that don't exist
+ansible-playbook redfish.yml  # Expects BMH resources that don't exist
 
 # Use this instead for kcli deployments  
-ansible-playbook kcli-redfish.yml  # ✅ Works with ksushy simulation
+ansible-playbook kcli-redfish.yml  # Uses defaults optimized for kcli
 ```
 
 ## 8. Troubleshooting
@@ -343,10 +361,18 @@ ssh your-host "journalctl -u libvirtd"
 ```
 
 **kcli Fencing issues:**
-```bash
-# Verify ksushy BMC simulator is running
-ssh your-host "curl -s http://localhost:8000/redfish/v1/"
 
+**Network connectivity**:
+```bash
+# Check that VMs can reach ksushy on the default IP (192.168.122.1)
+oc debug node/$(oc get nodes --no-headers -o custom-columns=NAME:.metadata.name | head -1) -- chroot /host curl -s http://192.168.122.1:8000/redfish/v1/
+
+# Check what gateway IP the VMs actually use
+oc debug node/$(oc get nodes --no-headers -o custom-columns=NAME:.metadata.name | head -1) -- chroot /host ip route show default
+```
+
+**Cluster fencing diagnostics**:
+```bash
 # Check stonith resources in cluster
 source proxy.env
 oc debug node/$(oc get nodes --no-headers -o custom-columns=NAME:.metadata.name | head -1) -- chroot /host pcs stonith status
@@ -354,6 +380,8 @@ oc debug node/$(oc get nodes --no-headers -o custom-columns=NAME:.metadata.name 
 # Test fencing manually (replace node name and cluster details)
 oc debug node/your-node -- chroot /host pcs stonith fence your-node_redfish
 ```
+
+**Note**: If your kcli deployment uses a non-standard network, override the `ksushy_ip` parameter to match your libvirt gateway IP.
 
 ### Monitoring Deployment Status
 
