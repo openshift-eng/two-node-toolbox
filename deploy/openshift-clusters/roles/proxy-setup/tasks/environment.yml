@@ -5,12 +5,7 @@
   copy:
     content: |
       # Determine the directory where this proxy.env file is located
-      if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
-          PROXY_ENV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-      else
-          # Fallback for when sourced without BASH_SOURCE (e.g., from different shells)
-          PROXY_ENV_DIR="$(pwd)"
-      fi
+      PROXY_ENV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
       export EC2_PUBLIC_IP={{ hostvars[inventory_hostname]['inventory_hostname'].split('@')[1] }}
       export PROXYPORT={{ proxy_port }}
