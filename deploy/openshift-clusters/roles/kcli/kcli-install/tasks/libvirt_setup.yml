@@ -1,0 +1,61 @@
+---
+# Libvirt virtualization setup for kcli-install
+
+- name: Install libvirt and virtualization packages
+  dnf:
+    name:
+      - libvirt
+      - libvirt-daemon-kvm
+      - libvirt-daemon-config-network
+      - qemu-kvm
+      - virt-install
+      - virt-viewer
+      - libvirt-python3
+      - acl
+    state: present
+  become: true
+
+- name: Start and enable libvirtd service
+  systemd:
+    name: libvirtd
+    state: started
+    enabled: true
+  become: true
+
+- name: Add user to libvirt group for virtualization access
+  user:
+    name: "{{ ansible_user_id }}"
+    groups: libvirt
+    append: true
+  become: true
+
+- name: Reset SSH connection for group membership to take effect
+  meta: reset_connection
+
+- name: Ensure libvirt default network is started
+  community.libvirt.virt_net:
+    command: start
+    name: default
+  become: true
+  ignore_errors: true
+
+- name: Setup default storage pool
+  include_tasks: storage_pool_setup.yml
+  vars:
+    pool_name: default
+    pool_path: /var/lib/libvirt/images
+
+- name: Test libvirt connection
+  command: virsh list --all
+  register: libvirt_test
+  changed_when: false
+  failed_when: false
+
+- name: Display libvirt connection status
+  debug:
+    msg: "Libvirt connection test: {{ 'SUCCESS' if libvirt_test.rc == 0 else 'FAILED - ' + libvirt_test.stderr }}"
+
+- name: Fail if libvirt is not accessible
+  fail:
+    msg: "Libvirt is not accessible. Error: {{ libvirt_test.stderr }}"
+  when: libvirt_test.rc != 0

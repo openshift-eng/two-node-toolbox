@@ -65,16 +65,20 @@
   changed_when: false
   failed_when: false
 
+- name: Check for existing cluster VMs
+  set_fact:
+    cluster_vms_exist: "{{ existing_vms.stdout_lines | select('search', test_cluster_name + '-ctlplane') | list | length > 0 }}"
+
 - name: Warn if cluster VMs already exist
   debug:
     msg: "WARNING: VMs for cluster {{ test_cluster_name }} may already exist. Use force_cleanup=true to remove them."
-  when: existing_vms.stdout_lines | select('search', test_cluster_name + '-ctlplane') | list | length > 0
+  when: cluster_vms_exist
 
 - name: Fail if cluster exists and force_cleanup is false
   fail:
     msg: "Cluster {{ test_cluster_name }} already exists. Set force_cleanup=true to remove existing cluster first."
   when: 
-    - existing_vms.stdout_lines | select('search', test_cluster_name + '-ctlplane') | list | length > 0
+    - cluster_vms_exist
     - not force_cleanup
 
 # Authentication file validation

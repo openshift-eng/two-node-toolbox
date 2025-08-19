@@ -1,0 +1,87 @@
+---
+# kcli installation and configuration
+
+- name: Check if kcli is installed
+  command: which kcli
+  register: kcli_check
+  failed_when: false
+  changed_when: false
+
+- name: Install kcli using dnf (RHEL/Fedora/CentOS)
+  block:
+    - name: Enable kcli copr repository
+      command: dnf -y copr enable karmab/kcli
+      become: true
+
+    - name: Install kcli package
+      dnf:
+        name: kcli
+        state: present
+      become: true
+  when: kcli_check.rc != 0
+
+- name: Verify kcli installation
+  command: which kcli
+  register: kcli_verify
+  failed_when: kcli_verify.rc != 0
+  changed_when: false
+
+- name: Check kcli version
+  command: kcli version
+  register: kcli_version_output
+  changed_when: false
+
+- name: Display kcli version
+  debug:
+    msg: "Using kcli version: {{ kcli_version_output.stdout }}"
+
+- name: Check if kcli config exists
+  stat:
+    path: "{{ ansible_user_dir }}/.kcli/config.yml"
+  register: kcli_config_stat
+
+- name: Create kcli config directory
+  file:
+    path: "{{ ansible_user_dir }}/.kcli"
+    state: directory
+    mode: '0755'
+  when: not kcli_config_stat.stat.exists
+
+- name: Create default kcli configuration for local libvirt
+  copy:
+    dest: "{{ ansible_user_dir }}/.kcli/config.yml"
+    content: |
+      default:
+        client: local
+      local:
+        type: kvm
+        host: 127.0.0.1
+    mode: '0644'
+  when: not kcli_config_stat.stat.exists
+
+- name: Check available libvirt pools
+  command: kcli list pool
+  register: kcli_pools
+  changed_when: false
+  failed_when: false
+
+- name: Display available pools
+  debug:
+    msg: "Available kcli pools: {{ kcli_pools.stdout_lines }}"
+
+- name: Verify kcli can see default pool
+  fail:
+    msg: "kcli cannot see the default storage pool. Available pools: {{ kcli_pools.stdout_lines }}"
+  when: 
+    - kcli_pools.rc == 0
+    - "'default' not in kcli_pools.stdout"
+
+- name: Check available networks
+  command: kcli list network
+  register: kcli_networks
+  changed_when: false
+  failed_when: false
+
+- name: Display available networks
+  debug:
+    msg: "Available kcli networks: {{ kcli_networks.stdout_lines }}"

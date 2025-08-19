@@ -1,0 +1,86 @@
+---
+# Reusable storage pool setup for libvirt
+
+- name: Check if storage pool exists
+  command: virsh pool-list --all --name
+  register: existing_pools
+  changed_when: false
+  failed_when: false
+
+- name: Create storage pool directory
+  file:
+    path: "{{ pool_path }}"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+  become: true
+  when: "pool_name not in existing_pools.stdout_lines"
+
+- name: Set ACL permissions for user on storage directory
+  acl:
+    path: "{{ pool_path }}"
+    entity: "{{ ansible_user_id }}"
+    etype: user
+    permissions: rwx
+    state: present
+  become: true
+
+- name: Verify user can write to storage directory
+  file:
+    path: "{{ pool_path }}/.kcli-test"
+    state: touch
+    mode: '0644'
+  register: write_test
+  ignore_errors: true
+
+- name: Remove test file
+  file:
+    path: "{{ pool_path }}/.kcli-test"
+    state: absent
+  when: write_test is succeeded
+
+- name: Fail if directory is not writable
+  fail:
+    msg: "User {{ ansible_user_id }} cannot write to {{ pool_path }} directory"
+  when: write_test is failed
+
+- name: Define storage pool
+  command: >
+    virsh pool-define-as {{ pool_name }} dir
+    --target {{ pool_path }}
+  become: true
+  when: "pool_name not in existing_pools.stdout_lines"
+  register: pool_define_result
+  failed_when: 
+    - pool_define_result.rc != 0
+    - "'already exists' not in pool_define_result.stderr"
+
+- name: Build storage pool
+  command: virsh pool-build {{ pool_name }}
+  become: true
+  when: "pool_name not in existing_pools.stdout_lines"
+  register: pool_build_result
+  failed_when: false
+
+- name: Ensure storage pool is active
+  include_tasks: ensure_pool_active.yml
+
+- name: Set storage pool to autostart
+  command: virsh pool-autostart {{ pool_name }}
+  become: true
+
+- name: Verify storage pool is active
+  command: virsh pool-info {{ pool_name }}
+  register: pool_info
+  changed_when: false
+  become: true
+
+- name: Display storage pool information
+  debug:
+    msg: "Storage pool {{ pool_name }} status: {{ pool_info.stdout_lines }}"
+
+- name: Fail if storage pool is not active
+  fail:
+    msg: "Storage pool {{ pool_name }} is not active. Pool info: {{ pool_info.stdout }}"
+  when: pool_info.rc != 0 or 'running' not in pool_info.stdout
