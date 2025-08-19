@@ -90,12 +90,12 @@ This role follows the same authentication file conventions as the dev-scripts ro
 
 ### OpenShift Version
 
-- `ocp_version`: OpenShift version channel (default: "ci")
+- `ocp_version`: OpenShift version channel (default: "stable")
   - "stable": Released versions
   - "ci": Latest development/CI builds (requires CI registry access)
   - "candidate": Release candidates
   - "nightly": Nightly builds
-- `ocp_tag`: Specific OpenShift version tag (default: "4.20")
+- `ocp_tag`: Specific OpenShift version tag (default: "4.19")
 - `openshift_release_image`: Optional override for specific release image
 - `ci_token`: CI token for CI builds (required when openshift_ci=false)
 - `openshift_ci`: Set to true to avoid CI_TOKEN (has side effects, default: false)
@@ -109,7 +109,7 @@ This role follows the same authentication file conventions as the dev-scripts ro
 ### BMC/Fencing Configuration
 
 - `bmc_user`: BMC username (default: "admin")
-- `bmc_password`: BMC password (default: "admin")
+- `bmc_password`: BMC password (default: "admin123")
 - `bmc_driver`: BMC driver type - "redfish" or "ipmi" (default: "redfish")
 - `ksushy_ip`: IP address for ksushy BMC simulator (default: ansible_default_ipv4.address)
 - `ksushy_port`: Port for ksushy BMC simulator (default: 8000)
@@ -151,7 +151,7 @@ External dependencies:
     pull_secret_path: "{{ ansible_user_dir }}/pull-secret.json"
     vm_memory: 32768
     vm_numcpus: 16
-    ocp_tag: "4.20"
+    ocp_tag: "4.19"
   roles:
     - kcli-install
 ```

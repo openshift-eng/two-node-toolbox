@@ -177,10 +177,10 @@ ansible-playbook kcli-install.yml \
 
 With this configuration hierarchy:
 ```
-defaults/main.yml:     vm_memory: 32768
-vars/kcli-install.yml: vm_memory: 65536  
-playbook vars:         vm_memory: 49152
-command line:          -e "vm_memory=81920"
+roles/kcli/kcli-install/defaults/main.yml:     vm_memory: 32768
+vars/kcli-install.yml:                         vm_memory: 65536  
+playbook vars:                                 vm_memory: 49152
+command line:                                  -e "vm_memory=81920"
 ```
 
 The final value will be: **81920** (command line has preference)
@@ -202,11 +202,11 @@ The final value will be: **81920** (command line has preference)
 | `vm_memory` | `32768` | Memory per node (MB) |
 | `vm_numcpus` | `16` | CPU cores per node |
 | `vm_disk_size` | `120` | Disk size per node (GB) |
-| `ocp_version` | `"ci"` | OpenShift version channel |
-| `ocp_tag` | `"4.20"` | Specific version tag |
+| `ocp_version` | `"stable"` | OpenShift version channel |
+| `ocp_tag` | `"4.19"` | Specific version tag |
 | `network_name` | `"default"` | kcli network name |
 | `bmc_user` | `"admin"` | BMC username (fencing) |
-| `bmc_password` | `"admin"` | BMC password (fencing) |
+| `bmc_password` | `"admin123"` | BMC password (fencing) |
 | `force_cleanup` | `false` | Auto-remove existing cluster before deploy |
 
 ### Topology-Specific Variables
@@ -215,7 +215,7 @@ The final value will be: **81920** (command line has preference)
 ```yaml
 topology: "fencing"
 bmc_user: "admin"
-bmc_password: "secure-password"
+bmc_password: "admin123"
 bmc_driver: "redfish"  # or "ipmi"
 ksushy_port: 8000
 ```
@@ -250,7 +250,66 @@ ansible-playbook kcli-install.yml -i inventory.ini \
 
 Since the cluster runs on a remote host, you might need proxy configuration to access it from your local machine. After cluster installation, proxy setup will run to provide the same access as the dev-scripts (IPI) installation method.
 
-## 7. Troubleshooting
+## 7. Fencing Configuration (Post-Deployment)
+
+After a successful kcli deployment with fencing topology, you need to configure stonith (STONITH = Shoot The Other Node In The Head) fencing to enable automatic node recovery.
+
+### Understanding kcli Fencing vs Bare Metal
+
+**Important:** kcli deployments use a different approach than bare metal deployments:
+
+- **Bare Metal deployments** use BareMetalHost (BMH) custom resources that contain BMC connection details
+- **kcli deployments** use virtual machines with simulated BMC functionality (ksushy) but don't create BMH resources
+
+The existing `redfish.yml` playbook **will not work** with kcli deployments because it expects BMH resources that don't exist in virtualized environments.
+
+### kcli Fencing Configuration
+
+Use the specialized `kcli-redfish.yml` playbook designed for kcli deployments:
+
+```bash
+# Configure fencing for kcli-deployed cluster
+ansible-playbook kcli-redfish.yml -i inventory.ini \
+  -e "test_cluster_name=your-cluster-name" \
+  -e "ksushy_ip=$(ansible_host_ip)" \
+  -e "bmc_user=admin" \
+  -e "bmc_password=admin123"
+```
+
+The kcli-redfish playbook will:
+1. Discover cluster nodes from the OpenShift API
+2. Calculate BMC endpoints using the ksushy simulator configuration  
+3. Configure PCS stonith resources on each node
+4. Enable stonith globally in the cluster
+
+### Required Variables for kcli Fencing
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `test_cluster_name` | Name of your kcli cluster | `"edge-cluster-01"` |
+| `ksushy_ip` | IP of the hypervisor running ksushy | `"192.168.1.100"` |
+| `bmc_user` | BMC username from kcli config | `"admin"` |
+| `bmc_password` | BMC password from kcli config | `"admin123"` |
+
+### Automatic Variables
+
+The kcli deployment automatically configures these values, which are used by the fencing setup:
+- `ksushy_port`: Port for BMC simulator (default: 8000)
+- BMC system IDs based on VM names (`{cluster-name}-ctlplane-{index}`)
+
+### Why Not Use redfish.yml?
+
+**Do NOT use the `redfish.yml` playbook** with kcli deployments. It will fail because:
+
+```bash
+# This will fail for kcli deployments
+ansible-playbook redfish.yml  # ❌ Expects BMH resources that don't exist
+
+# Use this instead for kcli deployments  
+ansible-playbook kcli-redfish.yml  # ✅ Works with ksushy simulation
+```
+
+## 8. Troubleshooting
 
 ### Common Issues
 
@@ -281,6 +340,19 @@ ssh your-host "free -h && df -h"
 # Check kcli logs
 ssh your-host "kcli list vm"
 ssh your-host "journalctl -u libvirtd"
+```
+
+**kcli Fencing issues:**
+```bash
+# Verify ksushy BMC simulator is running
+ssh your-host "curl -s http://localhost:8000/redfish/v1/"
+
+# Check stonith resources in cluster
+source proxy.env
+oc debug node/$(oc get nodes --no-headers -o custom-columns=NAME:.metadata.name | head -1) -- chroot /host pcs stonith status
+
+# Test fencing manually (replace node name and cluster details)
+oc debug node/your-node -- chroot /host pcs stonith fence your-node_redfish
 ```
 
 ### Monitoring Deployment Status
@@ -329,7 +401,7 @@ This eliminates the need for manual cleanup steps in most scenarios.
 
 **Note**: If you change the `test_cluster_name` between deployments, the automatic cleanup won't find the old cluster. In this case, you may need to manually remove the old cluster: `kcli delete cluster openshift <old-cluster-name>`
 
-## 8. Advanced Configuration
+## 9. Advanced Configuration
 
 ### Custom Network Setup
 
