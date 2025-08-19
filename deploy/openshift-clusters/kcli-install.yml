@@ -1,6 +1,7 @@
 ---
 # OpenShift Two-Node Cluster deployment using kcli
 # This playbook deploys a two-node OpenShift cluster with fencing or arbiter configuration
+# Defaults to fencing topology with non-interactive mode for automation-friendly execution
 
 - hosts: all
   gather_facts: yes
@@ -13,14 +14,18 @@
   
   # --- Variable Definitions ---
   vars:
-    # By default, run in interactive mode. Automation will override this.
-    interactive_mode: "{{ interactive_mode | default(true) }}"
-    # Set default installation mode for normal installations
-    install_dev_mode: 'install'
+    # Default to non-interactive mode to prevent prompts during automated runs
+    # Set interactive_mode: true to enable prompts for manual execution
+    interactive_mode: false
+    
+    # Default topology is fencing (can be overridden to 'arbiter' if needed, not supported at the moment)
+    # This default ensures no prompt is triggered when interactive_mode is false
+    topology: fencing
 
   # --- Pre-flight Checks and Confirmation ---
   pre_tasks:
-    # The prompt for 'topology' runs when interactive_mode is not defined or is true
+    # The prompt for 'topology' runs ONLY when interactive_mode is true
+    # With default interactive_mode: false, this prompt is skipped
     - name: Prompt for the topology
       ansible.builtin.pause:
         prompt: "Enter topology (arbiter or fencing)"
@@ -29,7 +34,8 @@
       run_once: true
       when: interactive_mode is not defined or interactive_mode | bool
 
-    # Default 'topology' if not interactive or not provided
+    # Set topology from prompt result or use the default value
+    # When interactive_mode is false, this uses the default 'fencing' topology
     - name: Set the topology fact
       ansible.builtin.set_fact:
         topology: "{{ prompt_result.user_input | default('') or topology | default('fencing') }}"
@@ -39,6 +45,8 @@
         dir: roles/kcli/kcli-install/vars
       run_once: true
 
+    # Configuration display runs ONLY in interactive mode
+    # With default interactive_mode: false, this debug output is skipped
     - name: CONFIRMATION - Display the chosen configuration
       ansible.builtin.debug:
         msg: |
@@ -51,6 +59,8 @@
       # Confirmation runs when interactive_mode is not defined or is true
       when: interactive_mode is not defined or interactive_mode | bool
 
+    # User confirmation pause runs ONLY in interactive mode
+    # With default interactive_mode: false, this pause is skipped for automation
     - name: Wait for user to press Enter to continue
       ansible.builtin.pause:
         prompt: "Please verify the information above is correct. Press Enter to proceed."
@@ -66,6 +76,14 @@
     - vars/kcli-install.yml
 
   tasks:
+  # Setup proxy access as a separate step after cluster deployment
+  - name: Setup proxy access
+    include_role:
+      name: proxy-setup
+    vars:
+      kubeconfig_path: "{{ kubeconfig_path }}"
+      kubeadmin_password_path: "{{ kubeadmin_password_path }}"
+
   - name: "Final verification message"
     ansible.builtin.debug:
       msg: "Installation tasks have completed for {{ topology }} topology." 

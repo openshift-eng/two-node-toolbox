@@ -4,7 +4,7 @@ This guide covers deploying OpenShift two-node clusters using the kcli virtualiz
 
 ## Overview
 
-The kcli deployment method automates OpenShift two-node cluster creation with support for both **fencing** (now) and **arbiter** topologies (future release).
+The kcli deployment method automates OpenShift two-node cluster creation using **fencing topology** by default. Arbiter topology support is available for future releases.
 
 ## 1. Machine Requirements
 
@@ -107,7 +107,7 @@ Edit your configuration file with your specific values:
 # my-kcli-config.yml - Custom cluster configuration
 test_cluster_name: "production-edge-cluster"
 domain: "edge.company.com"
-topology: "fencing"  # or "arbiter"
+topology: "fencing"
 
 # OpenShift version
 ocp_version: "stable"
@@ -170,7 +170,6 @@ Override any variable at runtime:
 ```bash
 ansible-playbook kcli-install.yml \
   -e "test_cluster_name=emergency-cluster" \
-  -e "topology=arbiter" \
   -e "vm_memory=49152"
 ```
 
@@ -184,7 +183,7 @@ playbook vars:         vm_memory: 49152
 command line:          -e "vm_memory=81920"
 ```
 
-The final value will be: **81920** (command line wins)
+The final value will be: **81920** (command line has preference)
 
 ## 4. Core Configuration Variables
 
@@ -193,7 +192,7 @@ The final value will be: **81920** (command line wins)
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `test_cluster_name` | Cluster identifier | `"edge-cluster-01"` |
-| `topology` | Cluster type | `"fencing"` or `"arbiter"` |
+| `topology` | Cluster type | `"fencing"` (default) |
 | `domain` | Base domain | `"edge.company.com"` |
 
 ### Common Configuration Variables
@@ -208,6 +207,7 @@ The final value will be: **81920** (command line wins)
 | `network_name` | `"default"` | kcli network name |
 | `bmc_user` | `"admin"` | BMC username (fencing) |
 | `bmc_password` | `"admin"` | BMC password (fencing) |
+| `force_cleanup` | `false` | Auto-remove existing cluster before deploy |
 
 ### Topology-Specific Variables
 
@@ -220,17 +220,9 @@ bmc_driver: "redfish"  # or "ipmi"
 ksushy_port: 8000
 ```
 
-**Arbiter Topology:**
-```yaml
-topology: "arbiter"
-arbiter_memory: 16384  # Arbiter node memory (MB)
-```
-
 ## 5. Deployment
 
-### Interactive Deployment (Default)
-
-The provided `kcli-install.yml` playbook supports interactive mode:
+The deployment uses a **fencing topology** by default and runs non-interactively for consistent automation:
 
 ```bash
 # Install required Ansible collections
@@ -240,137 +232,25 @@ ansible-galaxy collection install -r collections/requirements.yml
 cp inventory.ini.sample inventory.ini
 # Edit inventory.ini with your host details
 
-# Run interactive deployment
+# Deploy fencing cluster (default)
 ansible-playbook kcli-install.yml -i inventory.ini
-```
 
-The playbook will:
-1. Prompt for topology selection (arbiter or fencing)
-2. Display configuration summary
-3. Request confirmation before proceeding
-4. Deploy the cluster
-
-### Non-Interactive Deployment
-
-For automation, install collections and disable interactive prompts:
-
-```bash
-# Install required Ansible collections
-ansible-galaxy collection install -r collections/requirements.yml
-
-# Deploy fencing cluster
+# Deploy with custom cluster name
 ansible-playbook kcli-install.yml -i inventory.ini \
-  -e "topology=fencing" \
-  -e "interactive_mode=false"
+  -e "test_cluster_name=prod-edge-cluster"
 
-# Deploy arbiter cluster with custom variables
+# Redeploy existing cluster (auto-cleanup first)
 ansible-playbook kcli-install.yml -i inventory.ini \
-  -e "topology=arbiter" \
-  -e "interactive_mode=false" \
-  -e "test_cluster_name=prod-arbiter-01"
-```
-
-### Using Custom Configuration Files
-
-Deploy with your custom configuration:
-
-```bash
-# Create custom playbook
-cat > deploy-production.yml << EOF
-- hosts: localhost
-  gather_facts: yes
-  vars:
-    interactive_mode: false
-  vars_files:
-    - my-production-config.yml
-  roles:
-    - kcli/kcli-install
-EOF
-
-# Deploy
-ansible-playbook deploy-production.yml -i inventory.ini
+  -e "force_cleanup=true"
 ```
 
 ## 6. Post-Deployment Access
 
-### Cluster Access
-
-After successful deployment:
-
-```bash
-# Set kubeconfig (replace cluster name as needed)
-export KUBECONFIG=~/.kcli/clusters/your-cluster-name/auth/kubeconfig
-
-# Verify cluster
-oc get nodes
-oc get clusteroperators
-```
-
-### Console Access
-
-The OpenShift web console is available at:
-```
-https://console-openshift-console.apps.<cluster_name>.<domain>
-```
-
-Login credentials:
-- **Username**: `kubeadmin`
-- **Password**: Found in `~/.kcli/clusters/<cluster_name>/auth/kubeadmin-password`
-
 ### Accessing from Local Machine
 
-Since the cluster runs on a remote host, you'll need proxy configuration to access it from your local machine. The main dev-scripts README covers proxy setup in detail.
+Since the cluster runs on a remote host, you might need proxy configuration to access it from your local machine. After cluster installation, proxy setup will run to provide the same access as the dev-scripts (IPI) installation method.
 
-## 7. Common Deployment Scenarios
-
-### Development Environment
-
-```yaml
-# dev-config.yml
-test_cluster_name: "dev-cluster"
-topology: "fencing"
-domain: "dev.lab.local"
-vm_memory: 32768
-vm_numcpus: 16
-ocp_version: "ci"
-ocp_tag: "4.20"
-force_cleanup: true  # Allow easy redeployment
-kcli_debug: true     # Verbose output
-```
-
-### Production Environment
-
-```yaml
-# prod-config.yml
-test_cluster_name: "prod-edge-site-01"
-topology: "arbiter"
-domain: "edge.company.com"
-vm_memory: 65536
-vm_numcpus: 32
-vm_disk_size: 200
-ocp_version: "stable"
-ocp_tag: "4.19"
-# Pull secret automatically read from role files/pull-secret.json
-# SSH key automatically read from ~/.ssh/id_ed25519.pub on localhost
-```
-
-### CI/CD Integration
-
-```bash
-# Install collections for CI environment
-ansible-galaxy collection install -r collections/requirements.yml
-
-# Automated CI deployment
-ansible-playbook kcli-install.yml \
-  -i inventory.ini \
-  -e "topology=fencing" \
-  -e "interactive_mode=false" \
-  -e "test_cluster_name=ci-test-$(date +%Y%m%d-%H%M)" \
-  -e "force_cleanup=true" \
-  -e "ci_token=${CI_REGISTRY_TOKEN}"
-```
-
-## 8. Troubleshooting
+## 7. Troubleshooting
 
 ### Common Issues
 
@@ -429,30 +309,27 @@ tail -f ~/.kcli/clusters/{cluster-name}/.openshift_install.log
 - **Deployment complete**: `auth/kubeconfig` file created
 
 
-### Force Cleanup and Retry
+### Redeployment
+
+If you need to redeploy a cluster (either due to failure or configuration changes), use the `force_cleanup=true` parameter to automatically remove the existing cluster before deploying:
 
 ```bash
-# Clean up failed deployment
-ssh your-host "kcli delete cluster openshift your-cluster --yes"
-
-# Redeploy with force cleanup
+# Automatic cleanup and redeploy
 ansible-playbook kcli-install.yml -i inventory.ini \
-  -e "force_cleanup=true" \
-  -e "interactive_mode=false"
+  -e "force_cleanup=true"
 ```
 
-## 9. Differences from dev-scripts Approach
+The `force_cleanup=true` parameter performs comprehensive cleanup before deployment:
 
-| Aspect | kcli Approach | dev-scripts Approach |
-|--------|---------------|----------------------|
-| **Configuration** | Ansible variables + override files | Shell config files |
-| **Deployment** | Single playbook execution | Multi-step make commands |
-| **Validation** | Built-in Ansible validation | Manual verification |
-| **State Management** | Automatic via kcli | Manual via dev-scripts |
-| **Provider Support** | Multiple via kcli | Primarily libvirt/KVM |
-| **Customization** | Variable override patterns | Config file modification |
+1. **Cluster cleanup**: Attempts `kcli delete cluster openshift <cluster-name>` if the cluster exists
+2. **VM cleanup**: Removes individual VMs (`<cluster-name>-ctlplane-0`, `<cluster-name>-ctlplane-1`, `<cluster-name>-arbiter`) if they exist
+3. **Handles edge cases**: Works even if VMs exist but aren't tracked as a kcli cluster
 
-## 10. Advanced Configuration
+This eliminates the need for manual cleanup steps in most scenarios.
+
+**Note**: If you change the `test_cluster_name` between deployments, the automatic cleanup won't find the old cluster. In this case, you may need to manually remove the old cluster: `kcli delete cluster openshift <old-cluster-name>`
+
+## 8. Advanced Configuration
 
 ### Custom Network Setup
 

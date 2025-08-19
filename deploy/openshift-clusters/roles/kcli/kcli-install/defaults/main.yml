@@ -7,9 +7,8 @@ topology: fencing  # "fencing" or "arbiter"
 domain: lab.example.com
 cluster_network_type: OVNKubernetes
 
-# Installation method and mode
+# Installation method
 method: kcli
-install_dev_mode: install  # "install" or "redeploy"
 
 # Two-node cluster configuration
 ctlplanes: 2

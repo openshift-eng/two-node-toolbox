@@ -3,22 +3,43 @@
 
 - name: Clean up existing cluster if force_cleanup is enabled
   block:
-    - name: Delete existing cluster
+    - name: Check existing kcli clusters
+      command: kcli list cluster
+      register: existing_clusters
+      failed_when: false
+      changed_when: false
+
+    - name: Delete existing cluster by name
       command: >
         kcli delete cluster openshift {{ test_cluster_name }} --yes
-      register: cleanup_result
+      register: cluster_cleanup_result
       failed_when: false
-      when: force_cleanup
+      when: existing_clusters.stdout_lines | select('search', test_cluster_name) | list | length > 0
 
-    - name: Display cleanup result
+    - name: Find VMs matching cluster name pattern
+      command: kcli list vm
+      register: all_vms
+      changed_when: false
+
+    - name: Clean up orphaned VMs if they exist
+      command: kcli delete vm {{ item }} --yes
+      register: vm_cleanup_result
+      failed_when: false
+      loop:
+        - "{{ test_cluster_name }}-ctlplane-0"
+        - "{{ test_cluster_name }}-ctlplane-1"
+        - "{{ test_cluster_name }}-arbiter"
+      when: all_vms.stdout_lines | select('search', item) | list | length > 0
+
+    - name: Display cleanup results
       debug:
-        msg: "Cleanup result: {{ cleanup_result.stdout }}"
-      when: force_cleanup and cleanup_result is defined
+        msg: |
+          Cluster cleanup: {{ cluster_cleanup_result.stdout | default('not attempted') }}
+          VM cleanup: {{ vm_cleanup_result.results | selectattr('stdout', 'defined') | map(attribute='stdout') | list | default(['not needed']) | join(', ') }}
 
     - name: Wait for cleanup to complete
       pause:
         seconds: 30
-      when: force_cleanup
   when: force_cleanup
 
 # Authentication file preparation

@@ -81,7 +81,6 @@ This role follows the same authentication file conventions as the dev-scripts ro
 - `ctlplanes`: Number of control plane nodes (default: 2, required for two-node)
 - `workers`: Number of worker nodes (default: 0 for two-node configuration)
 - `cluster_network_type`: OpenShift network type (default: "OVNKubernetes")
-- `install_dev_mode`: Installation mode - "install" or "redeploy" (default: "install")
 
 ### VM Specifications
 

@@ -15,11 +15,11 @@
 - name: Deploy OpenShift cluster with kcli
   include_tasks: deploy.yml
 
-- name: Setup proxy access
-  include_role:
-    name: proxy-setup
-  vars:
-    kubeconfig_path: "{{ kubeconfig_path }}"
-    kubeadmin_password_path: "{{ kubeadmin_password_path }}"
+# Set essential paths as facts for playbook use
+- name: Set cluster paths as facts for post-deployment tasks
+  ansible.builtin.set_fact:
+    kubeconfig_path: "{{ ansible_user_dir }}/.kcli/clusters/{{ test_cluster_name }}/auth/kubeconfig"
+    kubeadmin_password_path: "{{ ansible_user_dir }}/.kcli/clusters/{{ test_cluster_name }}/auth/kubeadmin-password"
+    cluster_name: "{{ test_cluster_name }}"
 
 # Deployment completed 
