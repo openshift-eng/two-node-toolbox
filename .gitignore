@@ -3,3 +3,4 @@ deploy/openshift-clusters/roles/install-dev/files/config_fencing.sh
 deploy/openshift-clusters/inventory-backup/
 .cursorrules
 deploy/openshift-clusters/vars/kcli-install.yml
+CLAUDE.md
