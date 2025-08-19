@@ -32,6 +32,7 @@
   register: pcs_stonith_status_result
   failed_when: false
   no_log: true
+  delegate_to: localhost
   environment:
     KUBECONFIG: "{{ proxy_kubeconfig | default(omit) }}"
     HTTP_PROXY: "{{ proxy_http_proxy | default(omit) }}"
@@ -48,6 +49,7 @@
   no_log: true
   register: pcs_stonith_create_result
   when: pcs_stonith_status_result.rc != 0
+  delegate_to: localhost
   environment:
     KUBECONFIG: "{{ proxy_kubeconfig | default(omit) }}"
     HTTP_PROXY: "{{ proxy_http_proxy | default(omit) }}"

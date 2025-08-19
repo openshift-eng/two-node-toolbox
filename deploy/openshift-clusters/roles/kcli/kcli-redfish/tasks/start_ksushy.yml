@@ -6,22 +6,18 @@
   register: ksushy_running
   failed_when: false
   changed_when: false
-  delegate_to: "{{ inventory_hostname }}"
 
 - name: Create ksushy systemd service
   shell: "KSUSHY_LISTEN_PORT={{ ksushy_port }} kcli create sushy-service"
   when: ksushy_running.rc != 0
-  delegate_to: "{{ inventory_hostname }}"
 
 - name: Ensure firewall allows ksushy port (runtime)
   shell: "sudo firewall-cmd --add-port={{ ksushy_port }}/tcp --zone=libvirt"
   when: ksushy_running.rc != 0
-  delegate_to: "{{ inventory_hostname }}"
 
 - name: Ensure firewall allows ksushy port (permanent)
   shell: "sudo firewall-cmd --permanent --add-port={{ ksushy_port }}/tcp --zone=libvirt"
   when: ksushy_running.rc != 0
-  delegate_to: "{{ inventory_hostname }}"
 
 - name: Wait for ksushy to start
   wait_for:
@@ -35,7 +31,6 @@
   shell: "curl -s -k 'https://{{ ksushy_ip }}:{{ ksushy_port }}/redfish/v1/Systems/local' --connect-timeout 5 | head -1"
   register: ksushy_test
   failed_when: false
-  delegate_to: "{{ inventory_hostname }}"
 
 - name: Display ksushy status
   debug:

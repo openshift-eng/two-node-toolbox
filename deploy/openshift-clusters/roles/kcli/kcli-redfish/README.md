@@ -18,14 +18,16 @@ This role:
 - OpenShift cluster deployed with kcli fencing topology
 - kcli command available on the hypervisor host
 - `kubernetes.core` Ansible collection
+- Python 3 with `kubernetes`, `PyYAML`, and `jsonpatch` libraries (automatically installed)
 - `oc` CLI tool available in PATH
 - Valid kubeconfig file with cluster-admin permissions
 - SSH access to the kcli deployment host (hypervisor)
-- Sudo privileges on the hypervisor for firewall configuration
+- Sudo privileges on the hypervisor for firewall configuration and Python package installation
 
 ## Automatic Setup
 
 The role automatically handles:
+- Installing required Python dependencies (`kubernetes`, `PyYAML`, `jsonpatch`)
 - Creating ksushy systemd service using `kcli create sushy-service`
 - Configuring firewall rules (port 9000/tcp in libvirt zone)
 - SSL certificate management (self-signed certificates via kcli)
@@ -34,6 +36,7 @@ The role automatically handles:
 ## Dependencies
 
 - kubernetes.core collection: `ansible-galaxy collection install kubernetes.core`
+- Python dependencies are automatically installed by the role (kubernetes, PyYAML, jsonpatch)
 
 ## Role Variables
 

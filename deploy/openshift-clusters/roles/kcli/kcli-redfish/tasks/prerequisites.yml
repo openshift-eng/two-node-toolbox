@@ -1,0 +1,24 @@
+---
+# Prerequisites for kcli-redfish role
+# Install required Python dependencies for kubernetes.core collection
+
+- name: Enable CodeReady Builder repository for RHEL 9
+  command: subscription-manager repos --enable codeready-builder-for-rhel-9-$(arch)-rpms
+  become: true
+  register: codeready_result
+  failed_when: false
+  changed_when: "'already enabled' not in codeready_result.stderr"
+
+- name: Install EPEL repository for RHEL 9
+  dnf:
+    name: https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+    state: present
+    disable_gpg_check: true
+  become: true
+
+- name: Install Python dependencies for kubernetes.core collection
+  package:
+    name:
+      - python-kubernetes
+    state: present
+  become: true 

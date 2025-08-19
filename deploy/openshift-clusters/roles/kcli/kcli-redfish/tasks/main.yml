@@ -2,6 +2,9 @@
 # kcli-redfish role main tasks
 # Configures stonith fencing for kcli-deployed clusters
 
+- name: Install prerequisites
+  include_tasks: prerequisites.yml
+
 - name: Load kcli-install role defaults for consistent configuration
   include_vars:
     file: "{{ playbook_dir }}/roles/kcli/kcli-install/defaults/main.yml"
@@ -29,9 +32,6 @@
 
 - name: Start ksushy BMC simulator
   include_tasks: start_ksushy.yml
-  vars:
-    # Set inventory_hostname for hypervisor delegation
-    inventory_hostname: "{{ groups['metal_machine'][0] if groups['metal_machine'] is defined else 'localhost' }}"
 
 - name: Validate configuration
   assert:
@@ -46,6 +46,7 @@
       - Hypervisor IP: {{ ksushy_ip }}
       - BMC User: {{ bmc_user }}
       - BMC Password: [{{ 'SET' if bmc_password != '' else 'MISSING' }}]
+  delegate_to: localhost
 
 - name: Get cluster nodes
   kubernetes.core.k8s_info:
@@ -54,6 +55,7 @@
     label_selectors:
       - "node-role.kubernetes.io/control-plane="
   register: cluster_nodes
+  delegate_to: localhost
   environment:
     KUBECONFIG: "{{ proxy_kubeconfig | default(omit) }}"
     K8S_AUTH_PROXY: "{{ proxy_k8s_auth_proxy | default(omit) }}"
@@ -67,14 +69,17 @@
       - cluster_nodes.resources is defined
       - cluster_nodes.resources | length > 0
     fail_msg: "No control plane nodes found in the cluster"
+  delegate_to: localhost
 
 - name: Extract node names
   set_fact:
     node_names: "{{ cluster_nodes.resources | map(attribute='metadata.name') | list }}"
+  delegate_to: localhost
 
 - name: Display discovered nodes
   debug:
     msg: "Found cluster nodes: {{ node_names }}"
+  delegate_to: localhost
 
 - name: Configure stonith for each node
   include_tasks: configure_stonith.yml

@@ -1,8 +1,7 @@
 ---
 - name: Configure PCS Stonith for kcli-deployed clusters using simulated Redfish BMC
-  hosts: localhost # This playbook runs on the Ansible control node
-  connection: local
-  gather_facts: false # No need to gather facts for localhost
+  hosts: all
+  gather_facts: false
 
   # Ensure the kubernetes.core collection is installed:
   # ansible-galaxy collection install kubernetes.core
@@ -20,6 +19,7 @@
           stat:
             path: "./proxy.env"
           register: proxy_env_file
+          delegate_to: localhost
 
         - name: Handle proxy.env file presence
           block:
@@ -33,6 +33,7 @@
                 echo "NO_PROXY=$NO_PROXY"
               register: env_vars_output
               changed_when: false
+              delegate_to: localhost
 
             - name: Extract environment variables
               set_fact:

@@ -5,6 +5,7 @@
   ansible.builtin.shell: |
     oc debug node/{{ node_names[0] }} -- chroot /host bash -c "pcs property set stonith-enabled=true"
   register: pcs_stonith_enable_result
+  delegate_to: localhost
   environment:
     KUBECONFIG: "{{ proxy_kubeconfig | default(omit) }}"
     HTTP_PROXY: "{{ proxy_http_proxy | default(omit) }}"
@@ -15,6 +16,7 @@
   ansible.builtin.shell: |
     oc debug node/{{ node_names[0] }} -- chroot /host bash -c "pcs property show stonith-enabled"
   register: pcs_stonith_verify_result
+  delegate_to: localhost
   environment:
     KUBECONFIG: "{{ proxy_kubeconfig | default(omit) }}"
     HTTP_PROXY: "{{ proxy_http_proxy | default(omit) }}"
@@ -31,6 +33,7 @@
   ansible.builtin.shell: |
     oc debug node/{{ node_names[0] }} -- chroot /host bash -c "pcs stonith status"
   register: pcs_stonith_list_result
+  delegate_to: localhost
   environment:
     KUBECONFIG: "{{ proxy_kubeconfig | default(omit) }}"
     HTTP_PROXY: "{{ proxy_http_proxy | default(omit) }}"
