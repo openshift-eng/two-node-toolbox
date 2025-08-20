@@ -87,10 +87,9 @@ You can configure the deployment using any combination of these methods (in prec
 
 1. **Command line variables** (highest precedence)
 2. **Playbook vars section**
-3. **Variable override file** (`roles/kcli/kcli-install/vars/kcli-install.yml`)
-4. **Role defaults** (lowest precedence) (`roles/kcli/kcli-install/defaults/main.yml`)
+3. **Role defaults** (lowest precedence) (`roles/kcli/kcli-install/defaults/main.yml`)
 
-For simple overrides, the command line is recommended. For more complex and permanent overrides, you can change the Role defaults, but they will be overwritten on a two-node-toolbox update.
+For simple overrides, the command line is recommended. For setting your preferred permanent config, make a copy of [the defaults template](roles/kcli/kcli-install/defaults/main.yml.template) to main.yml and update the values to your preference. This file is not tracked by Git and will persist between TNT updates. 
 
 You can find more information on the official ansible documentation https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_variables.html:
 
