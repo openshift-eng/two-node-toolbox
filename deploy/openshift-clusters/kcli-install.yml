@@ -54,7 +54,7 @@
           Method: kcli (equivalent to dev-scripts IPI)
           Cluster: {{ test_cluster_name | default('ostest-kcli') }}
           Domain: {{ domain | default('karmalabs.corp') }}
-          Version: {{ ocp_version | default('ci') }}/{{ ocp_tag | default('4.20') }}
+          Version: {{ ocp_version | default('stable') }}/{{ ocp_tag | default('4.19') }}
       run_once: true
       # Confirmation runs when interactive_mode is not defined or is true
       when: interactive_mode is not defined or interactive_mode | bool
@@ -83,6 +83,15 @@
     vars:
       kubeconfig_path: "{{ ansible_user_dir }}/.kcli/clusters/{{ test_cluster_name }}/auth/kubeconfig"
       kubeadmin_password_path: "{{ ansible_user_dir }}/.kcli/clusters/{{ test_cluster_name }}/auth/kubeadmin-password"
+
+  # Automatically configure Redfish BMC simulation for fencing topology
+  - name: Configure Redfish BMC simulation for fencing topology
+    shell: ansible-playbook kcli-redfish.yml -i {{ inventory_file | default('inventory.ini') }}
+    args:
+      chdir: "{{ playbook_dir }}"
+    delegate_to: localhost
+    run_once: true
+    when: topology == "fencing"
 
   - name: "Final verification message"
     ansible.builtin.debug:
