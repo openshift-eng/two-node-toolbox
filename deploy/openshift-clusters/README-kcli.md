@@ -1,10 +1,10 @@
 # OpenShift Two-Node Cluster Deployment with kcli
 
-This guide covers deploying OpenShift two-node clusters using the kcli virtualization management tool. This approach provides an alternative to the dev-scripts method, offering simplified configuration and automated deployment workflows.
+This guide covers deploying OpenShift two-node clusters using the kcli virtualization management tool. This approach provides a way of testing UPI deployments which is not available through the dev-scripts method.
 
 ## Overview
 
-The kcli deployment method automates OpenShift two-node cluster creation using **fencing topology** by default. Arbiter topology support is available for future releases.
+The kcli deployment method automates OpenShift two-node cluster creation using **fencing topology** by default. Arbiter topology support will be available for future releases.
 
 ## 1. Machine Requirements
 
@@ -38,8 +38,6 @@ The kcli-install role automatically handles target host setup including:
 - kcli package installation from COPR repository
 - Default kcli configuration for local KVM hypervisor
 - User permissions for libvirt group access
-
-No manual kcli installation is required on the target host. 
 
 ### OpenShift Requirements
 
@@ -85,85 +83,18 @@ The kcli deployment supports multiple configuration approaches with clear variab
 
 ### Configuration Methods
 
-You can configure the deployment using any combination of these methods (in precedence order):
+You can configure the deployment using any combination of these methods (in precedence order). 
 
 1. **Command line variables** (highest precedence)
 2. **Playbook vars section**
-3. **Variable override file** (`vars/kcli-install.yml`)
-4. **Role defaults** (lowest precedence)
+3. **Variable override file** (`roles/kcli/kcli-install/vars/kcli-install.yml`)
+4. **Role defaults** (lowest precedence) (`roles/kcli/kcli-install/defaults/main.yml`)
 
-### Method 1: Variable Override File (Recommended for Persistent Configuration)
+For simple overrides, the command line is recommended. For more complex and permanent overrides, you can change the Role defaults, but they will be overwritten on a two-node-toolbox update.
 
-For persistent configuration that survives across deployments, use the variable override file:
+You can find more information on the official ansible documentation https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_variables.html:
 
-```bash
-# Copy and customize the example variables file
-cp vars/kcli-install.yml my-kcli-config.yml
-```
-
-Edit your configuration file with your specific values:
-
-```yaml
-# my-kcli-config.yml - Custom cluster configuration
-test_cluster_name: "production-edge-cluster"
-domain: "edge.company.com"
-topology: "fencing"
-
-# OpenShift version
-ocp_version: "stable"
-ocp_tag: "4.20"
-
-# VM specifications for production
-vm_memory: 65536  # 64GB RAM
-vm_numcpus: 32    # 32 CPU cores
-vm_disk_size: 200 # 200GB disk
-
-# Authentication: pull secret automatically read from role files/ directory
-# SSH key automatically read from ~/.ssh/id_ed25519.pub on localhost
-
-# Network configuration
-network_name: "production"
-api_ip: "10.100.50.100"
-ingress_ip: "10.100.50.101"
-
-# BMC configuration for fencing
-bmc_user: "cluster-admin"
-bmc_password: "secure-bmc-password"
-```
-
-**Important**: The override file must be explicitly imported in your playbook:
-
-```yaml
-# Custom playbook using override file
-- hosts: localhost
-  gather_facts: yes
-  vars_files:
-    - my-kcli-config.yml  # Your custom configuration
-  roles:
-    - kcli/kcli-install
-```
-
-### Method 2: Inline Playbook Variables
-
-For one-off deployments or testing, define variables directly in the playbook:
-
-```yaml
-# inline-config-example.yml
-- hosts: localhost
-  gather_facts: yes
-  vars:
-    test_cluster_name: "test-cluster-01"
-    topology: "fencing"
-    domain: "test.lab.local"
-    vm_memory: 32768
-    vm_numcpus: 16
-    ocp_tag: "4.20"
-    # Pull secret automatically read from role files/pull-secret.json
-  roles:
-    - kcli/kcli-install
-```
-
-### Method 3: Command Line Overrides
+#### Command Line Overrides
 
 Override any variable at runtime:
 
@@ -173,17 +104,7 @@ ansible-playbook kcli-install.yml \
   -e "vm_memory=49152"
 ```
 
-### Variable Precedence Example
 
-With this configuration hierarchy:
-```
-roles/kcli/kcli-install/defaults/main.yml:     vm_memory: 32768
-vars/kcli-install.yml:                         vm_memory: 65536  
-playbook vars:                                 vm_memory: 49152
-command line:                                  -e "vm_memory=81920"
-```
-
-The final value will be: **81920** (command line has preference)
 
 ## 4. Core Configuration Variables
 
@@ -216,7 +137,7 @@ The final value will be: **81920** (command line has preference)
 topology: "fencing"
 bmc_user: "admin"
 bmc_password: "admin123"
-bmc_driver: "redfish"  # or "ipmi"
+bmc_driver: "redfish"  
 ksushy_port: 8000
 ```
 
@@ -228,7 +149,7 @@ The deployment uses a **fencing topology** by default and runs non-interactively
 # Install required Ansible collections
 ansible-galaxy collection install -r collections/requirements.yml
 
-# Update inventory with your target host
+# Update inventory with your target host (if not using the automatic inventory management)
 cp inventory.ini.sample inventory.ini
 # Edit inventory.ini with your host details
 
@@ -239,10 +160,9 @@ ansible-playbook kcli-install.yml -i inventory.ini
 ansible-playbook kcli-install.yml -i inventory.ini \
   -e "test_cluster_name=prod-edge-cluster"
 
-# Redeploy existing cluster (auto-cleanup first)
-ansible-playbook kcli-install.yml -i inventory.ini \
-  -e "force_cleanup=true"
 ```
+
+To redeploy a cluster, check the [redeployment](#9-redeployment) section
 
 ## 6. Post-Deployment Access
 
@@ -252,20 +172,13 @@ Since the cluster runs on a remote host, you might need proxy configuration to a
 
 ## 7. Fencing Configuration (Post-Deployment)
 
-After a successful kcli deployment with fencing topology, you need to configure stonith (STONITH = Shoot The Other Node In The Head) fencing to enable automatic node recovery.
-
-### Understanding kcli Fencing vs Bare Metal
-
-**Important:** kcli deployments use a different approach than bare metal deployments:
-
-- **Bare Metal deployments** use BareMetalHost (BMH) custom resources that contain BMC connection details
-- **kcli deployments** use virtual machines with simulated BMC functionality (ksushy) but don't create BMH resources
+After a successful 4.19 kcli deployment with fencing topology, STONITH fencing needs to be configured to enable automatic node recovery. *If you are using the kcli-install playbook, this will be done for you automatically via kcli-redfish.yml**. If you're doing it some other way, you can use the kcli-redfish,yml playbook manually.
 
 The existing `redfish.yml` playbook **will not work** with kcli deployments because it expects BMH resources that don't exist in virtualized environments.
 
 ### kcli Fencing Configuration
 
-Use the specialized `kcli-redfish.yml` playbook designed for kcli deployments. **All configuration is automatically detected** - no manual variables required:
+The specialized `kcli-redfish.yml` playbook is designed for kcli deployments. **All configuration is automatically detected** - no manual variables required:
 
 ```bash
 # Configure fencing for kcli-deployed cluster (fully automatic)
@@ -294,26 +207,6 @@ The playbook uses reasonable defaults that work for typical kcli deployments:
 | `ksushy_port` | `8000` | From kcli-install defaults |
 
 These defaults work for standard kcli deployments where VMs use the default libvirt network (`192.168.122.x/24`).
-
-### Manual Override (Optional)
-
-Override any default values as needed:
-
-```bash
-# Override cluster name for different cluster
-ansible-playbook kcli-redfish.yml -i inventory.ini \
-  -e "test_cluster_name=production-cluster"
-
-# Override network configuration for custom setup
-ansible-playbook kcli-redfish.yml -i inventory.ini \
-  -e "ksushy_ip=10.0.100.1"
-
-# Override multiple values
-ansible-playbook kcli-redfish.yml -i inventory.ini \
-  -e "test_cluster_name=edge-cluster" \
-  -e "ksushy_ip=172.16.1.1" \
-  -e "bmc_password=secure123"
-```
 
 ### Why Not Use redfish.yml?
 
@@ -356,11 +249,13 @@ ssh your-host "free -h && df -h"
 **Deployment failures:**
 ```bash
 # Check kcli logs
-ssh your-host "kcli list vm"
-ssh your-host "journalctl -u libvirtd"
+ssh {your-host} "kcli list vm"
+ssh {your-host} "journalctl -u libvirtd"
 ```
 
-**kcli Fencing issues:**
+### kcli Fencing Issues
+
+Note: Remember to `source proxy.env` before any `oc` commands if you're using the integrated proxy pod. 
 
 **Network connectivity**:
 ```bash
@@ -374,7 +269,7 @@ oc debug node/$(oc get nodes --no-headers -o custom-columns=NAME:.metadata.name 
 **Cluster fencing diagnostics**:
 ```bash
 # Check stonith resources in cluster
-source proxy.env
+
 oc debug node/$(oc get nodes --no-headers -o custom-columns=NAME:.metadata.name | head -1) -- chroot /host pcs stonith status
 
 # Test fencing manually (replace node name and cluster details)
@@ -385,7 +280,7 @@ oc debug node/your-node -- chroot /host pcs stonith fence your-node_redfish
 
 ### Monitoring Deployment Status
 
-Check the status of an ongoing kcli installation using kcli's internal tracking mechanisms, from inside the host where it is being deployed:
+Check the status of an ongoing kcli installation using kcli's internal tracking mechanisms. Run this from inside the host where it is being deployed:
 
 ```bash
 # List all clusters managed by kcli
@@ -409,7 +304,7 @@ tail -f ~/.kcli/clusters/{cluster-name}/.openshift_install.log
 - **Deployment complete**: `auth/kubeconfig` file created
 
 
-### Redeployment
+## 9. Redeployment
 
 If you need to redeploy a cluster (either due to failure or configuration changes), use the `force_cleanup=true` parameter to automatically remove the existing cluster before deploying:
 
@@ -422,14 +317,14 @@ ansible-playbook kcli-install.yml -i inventory.ini \
 The `force_cleanup=true` parameter performs comprehensive cleanup before deployment:
 
 1. **Cluster cleanup**: Attempts `kcli delete cluster openshift <cluster-name>` if the cluster exists
-2. **VM cleanup**: Removes individual VMs (`<cluster-name>-ctlplane-0`, `<cluster-name>-ctlplane-1`, `<cluster-name>-arbiter`) if they exist
+2. **VM cleanup**: Removes individual VMs (`{cluster-name}-ctlplane-0`, `{cluster-name}-ctlplane-1`, `{cluster-name}-arbiter`) if they exist
 3. **Handles edge cases**: Works even if VMs exist but aren't tracked as a kcli cluster
 
 This eliminates the need for manual cleanup steps in most scenarios.
 
-**Note**: If you change the `test_cluster_name` between deployments, the automatic cleanup won't find the old cluster. In this case, you may need to manually remove the old cluster: `kcli delete cluster openshift <old-cluster-name>`
+**Note**: If you change the `test_cluster_name` between deployments, the automatic cleanup won't find the old cluster. In this case, you may need to manually remove the old cluster: `kcli delete cluster openshift {old-cluster-name}`
 
-## 9. Advanced Configuration
+## 10. Advanced Configuration
 
 ### Custom Network Setup
 
@@ -439,16 +334,6 @@ network_name: "production-network"
 api_ip: "192.168.100.10"
 ingress_ip: "192.168.100.11"
 # kcli will create/configure the network as needed
-```
-
-### Multi-Version Testing
-
-```yaml
-# Test different OpenShift versions
-configs:
-  stable: { ocp_version: "stable", ocp_tag: "4.19" }
-  candidate: { ocp_version: "candidate", ocp_tag: "4.20" }
-  ci: { ocp_version: "ci", ocp_tag: "4.21" }
 ```
 
 For additional advanced scenarios and troubleshooting, refer to the [kcli-install role documentation](roles/kcli/kcli-install/README.md).
