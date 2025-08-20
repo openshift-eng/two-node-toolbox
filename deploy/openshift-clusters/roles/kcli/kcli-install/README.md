@@ -6,7 +6,7 @@ This role deploys OpenShift two-node clusters with fencing using kcli virtualiza
 
 The kcli-install role automates the deployment of OpenShift two-node clusters with automatic fencing configuration. It leverages kcli's OpenShift deployment capabilities to create a production-ready two-node cluster suitable for edge computing scenarios.
 
-This role is equivalent to running:
+This role is equivalent to running, for example:
 ```bash
 kcli create cluster openshift -P ctlplanes=2 -P version=ci -P tag='4.20' <cluster-name>
 ```
@@ -16,11 +16,9 @@ But adds comprehensive validation and error checking.
 **Consistent with install-dev role**: This role follows the same patterns as the existing `install-dev` role, using identical variable names (`test_cluster_name`, `topology`) and state management for seamless integration.
 
 Key features:
-- Automated two-node OpenShift deployment with fencing or arbiter
+- Automated two-node OpenShift deployment with fencing or arbiter (future release)
 - Configurable VM specifications and networking
-- Integration with kcli's BMC/Redfish simulation for fencing
-- Comprehensive validation and error checking
-- State management consistent with install-dev role
+- Integration with kcli's BMC/Redfish use of libvirt and sushytools for fencing (ksushy)
 - Support for both interactive and non-interactive deployment
 - Automatic proxy setup for cluster access in restricted environments
 
@@ -32,19 +30,10 @@ Key features:
 - Minimum 64GB RAM, 240GB storage for two nodes
 - User with passwordless sudo access
 - libvirt/KVM virtualization support enabled in BIOS
-- File system that supports d_type (required by dev-scripts)
 
-### Software Requirements
+### OpenShift Requirements
 
-- kcli installed and configured with a virtualization provider (KVM/libvirt)
-- libvirt virtualization stack (libvirt, qemu-kvm, libvirt-daemon-kvm)
-- OpenShift pull secret from Red Hat
-  - For CI builds: Pull secret must include `registry.ci.openshift.org` access
-  - Regular pull secret from console.redhat.com may not include CI registry access
-- SSH key pair for cluster access (reads `~/.ssh/id_ed25519.pub` from ansible controller)
-  - Generate on local machine with: `ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519` if not present
-- Network connectivity for OpenShift image downloads
-  - For CI builds: Access to `registry.ci.openshift.org`
+See the [general kcli README](../../../README-kcli.md#openshift-requirements) OpenShift Requirements section
 
 ### Ansible Collections
 
@@ -76,8 +65,8 @@ This role follows the same authentication file conventions as the dev-scripts ro
 ### Cluster Configuration
 
 - `topology`: Deployment topology (required)
-  - "fencing": Two-node cluster with automatic fencing (DevPreviewNoUpgrade)
-  - "arbiter": Two-node cluster with arbiter node (TechPreviewNoUpgrade)
+  - "fencing": Two-node cluster with automatic fencing 
+  - "arbiter": Two-node cluster with arbiter node (not supported yet)
 - `ctlplanes`: Number of control plane nodes (default: 2, required for two-node)
 - `workers`: Number of worker nodes (default: 0 for two-node configuration)
 - `cluster_network_type`: OpenShift network type (default: "OVNKubernetes")
@@ -89,13 +78,14 @@ This role follows the same authentication file conventions as the dev-scripts ro
 - `vm_disk_size`: Disk size per node in GB (default: 120)
 
 ### OpenShift Version
+See [defaults](../kcli-install/defaults/main.yml.template) for default values
 
-- `ocp_version`: OpenShift version channel (default: "stable")
+- `ocp_version`: OpenShift version channel
   - "stable": Released versions
   - "ci": Latest development/CI builds (requires CI registry access)
   - "candidate": Release candidates
   - "nightly": Nightly builds
-- `ocp_tag`: Specific OpenShift version tag (default: "4.19")
+- `ocp_tag`: Specific OpenShift version tag 
 - `openshift_release_image`: Optional override for specific release image
 - `ci_token`: CI token for CI builds (required when openshift_ci=false)
 - `openshift_ci`: Set to true to avoid CI_TOKEN (has side effects, default: false)
@@ -126,35 +116,6 @@ This role follows the same authentication file conventions as the dev-scripts ro
 - `kcli_debug`: Enable kcli debug output (default: false)
 - `force_cleanup`: Remove existing cluster before deployment (default: false)
 
-## Dependencies
-
-The role automatically installs and configures:
-- libvirt virtualization stack (libvirt, qemu-kvm, libvirt-daemon-kvm, etc.)
-- kcli package from COPR repository
-- Required Ansible collections (community.libvirt, kubernetes.core)
-- Default kcli configuration for local KVM hypervisor
-- User permissions for libvirt group access
-
-External dependencies:
-- Access to Red Hat registry or disconnected registry
-- RHEL subscription or CentOS 9 package repositories
-
-## Example Playbook
-
-```yaml
-- hosts: localhost
-  gather_facts: yes
-  vars:
-    test_cluster_name: "edge-cluster-01"
-    topology: "fencing"  # or "arbiter"
-    domain: "example.corp"
-    pull_secret_path: "{{ ansible_user_dir }}/pull-secret.json"
-    vm_memory: 32768
-    vm_numcpus: 16
-    ocp_tag: "4.19"
-  roles:
-    - kcli-install
-```
 
 ## Usage
 
@@ -179,7 +140,7 @@ EOF
 
 3. Run the playbook (will prompt for topology and automatically install prerequisites):
 ```bash
-ansible-playbook kcli-install.yml
+ansible-playbook kcli-install.yml -i inventory.ini
 ```
 
 4. Access the deployed cluster:
@@ -209,13 +170,6 @@ ansible-playbook kcli-install.yml \
 ansible-playbook kcli-install.yml \
   -e "topology=arbiter" \
   -e "interactive_mode=false"
-```
-
-## Manual kcli Command Equivalent
-
-This role automates the equivalent of:
-```bash
-kcli create cluster openshift -P ctlplanes=2 -P version=ci -P tag='4.20' <cluster-name>
 ```
 
 ## Cleanup
