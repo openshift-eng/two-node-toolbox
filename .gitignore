@@ -5,3 +5,5 @@ deploy/openshift-clusters/inventory-backup/
 deploy/openshift-clusters/vars/kcli-install.yml
 CLAUDE.md
 deploy/openshift-clusters/roles/kcli/kcli-install/defaults/main.yml
+kcli
+kcli/*
