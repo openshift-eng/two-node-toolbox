@@ -4,7 +4,7 @@ This role configures PCS (Pacemaker/Corosync) Stonith resources for kcli-deploye
 
 ## Description
 
-The kcli-redfish role automates the configuration of STONITH (Shoot-The-Other-Node-In-The-Head) resources for kcli-deployed OpenShift clusters. Unlike bare metal deployments that use BareMetalHost resources, kcli deployments use virtual machines with simulated BMC functionality via ksushy.
+The kcli-redfish role automates the configuration of STONITH (Shoot-The-Other-Node-In-The-Head) resources for kcli-deployed OpenShift clusters. Unlike bare metal deployments that use BareMetalHost resources, kcli deployments use virtual machines with simulated BMC functionality via [ksushy](https://kcli.readthedocs.io/en/latest/index.html#ksushy). For more information, see [the deploy folder README](../../../README.md#redfish-stonith-configuration)
 
 This role:
 1. Identifies cluster nodes from kcli deployment configuration

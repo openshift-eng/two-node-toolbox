@@ -113,6 +113,8 @@ If you wish to reach the Console WebUI, you can use any preferred proxy extensio
 
 #### Redfish Stonith Configuration
 
+For more information on STONITH, go to the [official RHEL HA documentation](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/configuring_and_managing_high_availability_clusters/assembly_configuring-fencing-configuring-and-managing-high-availability-clusters)
+
 For clusters using the fencing topology on OpenShift 4.19.x, automatic Redfish stonith configuration is available. This feature configures Pacemaker stonith resources using Redfish fencing for BareMetalHost resources.
 
 Redfish configuration can be applied in two ways:
