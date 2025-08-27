@@ -4,30 +4,44 @@
 
 - name: Create auth directory in user home
   file:
-    path: "{{ ansible_user_dir }}/auth"
+    path: "~/auth"
     state: directory
     mode: '0700'
 
 - name: Copy kubeconfig to auth directory
   copy:
     src: "{{ kubeconfig_path }}"
-    dest: "{{ ansible_user_dir }}/auth/kubeconfig"
+    dest: "~/auth/kubeconfig"
     mode: '0600'
     remote_src: true
 
 - name: Copy kubeadmin-password to auth directory
   copy:
     src: "{{ kubeadmin_password_path }}"
-    dest: "{{ ansible_user_dir }}/auth/kubeadmin-password"
+    dest: "~/auth/kubeadmin-password"
     mode: '0600'
     remote_src: true
   when: kubeadmin_password_path is defined
 
+- name: Create .kube directory
+  file:
+    path: "~/.kube"
+    state: directory
+    mode: '0755'
+
+- name: Create symlink for default kubeconfig location
+  file:
+    src: "~/auth/kubeconfig"
+    dest: "~/.kube/config"
+    state: link
+    force: true
+
 - name: Display auth files location
   debug:
     msg: |
-      Cluster authentication files copied to {{ ansible_user_dir }}/auth/:
-      - kubeconfig: {{ ansible_user_dir }}/auth/kubeconfig
+      Cluster authentication files copied to ~/auth/:
+      - kubeconfig: ~/auth/kubeconfig
       {% if kubeadmin_password_path is defined %}
-      - kubeadmin-password: {{ ansible_user_dir }}/auth/kubeadmin-password
+      - kubeadmin-password: ~/auth/kubeadmin-password
       {% endif %}
+      - Default kubeconfig symlink: ~/.kube/config -> ~/auth/kubeconfig
