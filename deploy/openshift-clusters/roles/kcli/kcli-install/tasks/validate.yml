@@ -41,22 +41,9 @@
     msg: "BMC user and password must be defined for fencing configuration"
   when: bmc_user == "" or bmc_password == ""
 
-- name: Validate CI configuration for CI builds
-  block:
-    - name: Check CI token when using CI builds
-      fail:
-        msg: "ci_token must be provided for CI builds when openshift_ci is false"
-      when: 
-        - ocp_version == "ci"
-        - not openshift_ci
-        - (ci_token is not defined or ci_token == "")
-
-    - name: Warn about OPENSHIFT_CI side effects
-      debug:
-        msg: "WARNING: openshift_ci=true avoids using CI_TOKEN but has side effects. See dev-scripts documentation."
-      when: 
-        - ocp_version == "ci"
-        - openshift_ci
+- name: Validate pull secret for CI builds
+  debug:
+    msg: "INFO: For CI builds, ensure your pull secret includes registry.ci.openshift.org access"
   when: ocp_version == "ci"
 
 - name: Check if cluster already exists

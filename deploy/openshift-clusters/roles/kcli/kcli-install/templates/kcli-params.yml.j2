@@ -13,12 +13,6 @@ tag: '{{ ocp_tag }}'
 {% if openshift_release_image != "" %}
 openshift_release_image: {{ openshift_release_image }}
 {% endif %}
-{% if ocp_version == "ci" and not openshift_ci and ci_token != "" %}
-ci_token: {{ ci_token }}
-{% endif %}
-{% if openshift_ci %}
-openshift_ci: true
-{% endif %}
 
 # Two-node cluster configuration with fencing
 ctlplanes: {{ ctlplanes }}

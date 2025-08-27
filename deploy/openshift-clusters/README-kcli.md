@@ -169,6 +169,41 @@ To redeploy a cluster, check the [redeployment](#9-redeployment) section
 
 Since the cluster runs on a remote host, you might need proxy configuration to access it from your local machine. After cluster installation, proxy setup will run to provide the same access as the dev-scripts (IPI) installation method.
 
+### CI Builds
+
+For deploying unreleased or development OpenShift builds, kcli supports CI builds from `registry.ci.openshift.org`:
+
+```yaml
+# CI build configuration
+ocp_version: "ci"
+ocp_tag: "4.20"  # Target version
+```
+
+**Requirements for CI builds:**
+1. **Enhanced Pull Secret**: Your pull secret must include `registry.ci.openshift.org` access
+2. **No CI Token Required**: Unlike dev-scripts, kcli does not use `CI_TOKEN` environment variables
+
+**Getting CI Registry Access:**
+1. Visit https://console-openshift-console.apps.ci.l2s4.p1.openshiftapps.com
+2. Log in with your Red Hat account
+3. Click your name → "Copy login command" → "Display Token" 
+4. Use the provided registry credentials to update your pull secret
+
+**Example CI deployment:**
+```bash
+# Deploy latest CI build
+ansible-playbook kcli-install.yml -i inventory.ini \
+  -e "ocp_version=ci" \
+  -e "ocp_tag=4.20" \
+  -e "interactive_mode=false"
+```
+
+**Verify CI registry access:**
+```bash
+# Check if your pull secret includes CI registry
+jq '.auths | has("registry.ci.openshift.org")' < roles/kcli/kcli-install/files/pull-secret.json
+```
+
 ## 7. Fencing Configuration (Post-Deployment)
 
 After a successful 4.19 kcli deployment with fencing topology, STONITH fencing needs to be configured to enable automatic node recovery. *If you are using the kcli-install playbook, this will be done for you automatically via kcli-redfish.yml**. If you're doing it some other way, you can use the kcli-redfish,yml playbook manually.
