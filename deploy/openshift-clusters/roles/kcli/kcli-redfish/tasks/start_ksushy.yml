@@ -27,11 +27,6 @@
     timeout: 30
   when: ksushy_running.rc != 0
 
-- name: Test ksushy BMC endpoint accessibility
-  shell: "curl -s -k 'https://{{ ksushy_ip }}:{{ ksushy_port }}/redfish/v1/Systems/local' --connect-timeout 5 | head -1"
-  register: ksushy_test
-  failed_when: false
-
 - name: Display ksushy status
   debug:
     msg: |
@@ -44,3 +39,23 @@
       BMC endpoints for {{ test_cluster_name }}:
       - https://{{ ksushy_ip }}:{{ ksushy_port }}/redfish/v1/Systems/{{ test_cluster_name }}-ctlplane-0
       - https://{{ ksushy_ip }}:{{ ksushy_port }}/redfish/v1/Systems/{{ test_cluster_name }}-ctlplane-1
+      
+- name: Test ksushy BMC endpoint accessibility
+  shell: "curl -s -k 'https://{{ ksushy_ip }}:{{ ksushy_port }}/redfish/v1/Systems/local' --connect-timeout 5 | head -1"
+  register: ksushy_test
+  failed_when: false
+
+- name: Fail if ksushy is not accessible
+  fail:
+    msg: |
+      WARNING: ksushy BMC simulator is not accessible at https://{{ ksushy_ip }}:{{ ksushy_port }}
+      
+      This will prevent STONITH fencing from working properly. Please check:
+      1. ksushy service status: systemctl --user status ksushy.service
+      2. Firewall configuration: firewall-cmd --list-ports --zone=libvirt
+      3. Network connectivity from VMs to hypervisor IP
+      
+      Test result: {{ ksushy_test.stdout | default('No response') }}
+      Return code: {{ ksushy_test.rc }}
+  when: ksushy_test.rc != 0
+
