@@ -43,11 +43,16 @@ Creates a new EC2 instance using CloudFormation. Reads configuration from `insta
 ```
 
 #### `init.sh`
-Initializes a deployed instance by uploading necessary files and running initial setup.
+Initializes a deployed instance by uploading necessary files and running initial setup. This script also generates SSH keys on the hypervisor that will be used for automatic passwordless access to cluster VMs.
 
 ```bash
 ./scripts/init.sh
 ```
+
+**SSH Key Setup:**
+- Copies your local SSH public key to the hypervisor for your access
+- Generates a dedicated SSH key pair on the hypervisor for cluster VM access
+- These keys enable automatic passwordless SSH from hypervisor to cluster VMs after deployment
 
 #### `start.sh`
 Starts a stopped EC2 instance and performs necessary post-startup checks.

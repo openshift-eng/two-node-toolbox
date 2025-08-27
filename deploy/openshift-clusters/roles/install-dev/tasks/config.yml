@@ -15,6 +15,13 @@
     src: "{{config_file[method]}}"
   register: dev_scripts_config
 
+- name: Configure SSH_PUB_KEY for hypervisor-to-VM access
+  lineinfile:
+    path: "{{dev_scripts_path}}/config_{{whoami.stdout}}.sh"
+    regexp: '^export SSH_PUB_KEY='
+    line: 'export SSH_PUB_KEY="$(cat ~/.ssh/id_rsa.pub)"'
+    insertafter: EOF
+
 - name: Install dependencies
   ansible.builtin.dnf:
     name: 

@@ -83,6 +83,26 @@ If you want to check the progress of the installation you can review or follow t
 - Source the `proxy.env` file by running `source proxy.env`.
 - After sourcing the file, you should be able to run oc get nodes to see the nodes running in your deployed cluster.
 
+#### SSH access to cluster VMs
+
+The deployment automatically configures SSH access from the hypervisor to cluster VMs:
+
+- SSH keys are automatically generated on the hypervisor during the AWS setup process
+- The cluster VMs are configured to accept SSH connections from the hypervisor using these keys
+- After deployment, you can SSH directly from the hypervisor to cluster VMs:
+
+  ```bash
+  # Access the hypervisor
+  make ssh  # from deploy/ directory for AWS hypervisors
+  
+  # SSH to cluster VMs (automatic passwordless access)
+  ssh core@192.168.111.20  # master node
+  ssh core@192.168.111.21  # worker/arbiter node
+  ```
+
+  - VM IP addresses can be found using `virsh list` and `virsh domifaddr <vm-name>` on the hypervisor
+  - RHCOS VMs use the `core` user by default
+
 > Note: The proxy.env file automatically detects its location and sets the correct absolute path for the kubeconfig, making it work from any directory where it's sourced.
 
 ### Optional: Accessing the Console WebUI

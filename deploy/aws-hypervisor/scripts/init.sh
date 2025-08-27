@@ -13,6 +13,19 @@ ssh-keyscan -H "$instance_host" >> ~/.ssh/known_hosts 2>/dev/null
 ssh "$instance_ip 'mkdir -p ~/.ssh'"
 scp "$SSH_PUBLIC_KEY" "$instance_ip:~/.ssh/id_rsa.pub"
 
+# Generate SSH key pair on hypervisor for cluster VM access
+echo "Generating SSH key pair on hypervisor for VM access..."
+ssh "$instance_ip" '
+  if [ ! -f ~/.ssh/id_rsa ]; then 
+    ssh-keygen -t rsa -b 2048 -f ~/.ssh/id_rsa -N "" -C "hypervisor-vm-access"
+    echo "Generated new SSH key pair for VM access"
+  else
+    echo "SSH key pair already exists"
+  fi
+  chmod 0600 ~/.ssh/id_rsa
+  chmod 0644 ~/.ssh/id_rsa.pub
+'
+
 scp "${SCRIPT_DIR}/configure.sh" "$instance_ip:~/configure.sh"
 
 # Create a minimal environment file with only the variables needed on the remote machine
