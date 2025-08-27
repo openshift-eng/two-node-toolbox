@@ -72,8 +72,7 @@
     block: "{{ lookup('template', 'oc_aliases.sh.j2') }}"
 - name: Setup proxy configuration
   include_role:
-    name: common
-    tasks_from: proxy
+    name: proxy-setup
 
 - name: Copy authentication files to standard location
   include_role:
@@ -84,7 +83,7 @@
 - name: Set cluster state to deployed
   include_role:
     name: common
-    tasks_from: cluster1-state
+    tasks_from: cluster-state
   vars:
     cluster_state_phase: 'deployed'
     installation_method: 'ipi'
