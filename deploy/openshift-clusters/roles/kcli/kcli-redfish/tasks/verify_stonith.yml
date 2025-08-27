@@ -29,6 +29,11 @@
       Stonith enable result: {{ pcs_stonith_enable_result.stdout | default('No output') }}
       Stonith verification: {{ pcs_stonith_verify_result.stdout | default('No output') }}
 
+- name: Fail if stonith is not enabled
+  fail:
+    msg: "STONITH is not enabled. Expected 'stonith-enabled: true' but got: {{ pcs_stonith_verify_result.stdout | default('No output') }}"
+  when: "'stonith-enabled: true' not in pcs_stonith_verify_result.stdout"
+
 - name: List all stonith resources
   ansible.builtin.shell: |
     oc debug node/{{ node_names[0] }} -- chroot /host bash -c "pcs stonith status"
