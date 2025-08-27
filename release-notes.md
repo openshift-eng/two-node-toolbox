@@ -1,5 +1,22 @@
 # Two-Node Toolbox Release Notes
 
+## Version 0.5.1.1 - SSH Key Management Enhancement
+*Release Date: August 2025*
+
+### New Features
+
+#### SSH Key Management
+- Added automatic SSH key generation for hypervisor-VM communication during initialization
+- Enhanced dev-scripts integration with SSH key handling in config phase
+- Improved documentation for SSH key workflows
+
+### Technical Changes
+- Updated init script with SSH key generation for VM access
+- Enhanced install-dev role with SSH key configuration tasks
+- Documentation updates for SSH key setup and usage
+
+---
+
 ## Version 0.5.1 - Agent-Based Installation Support
 *Release Date: August 2025*
 
