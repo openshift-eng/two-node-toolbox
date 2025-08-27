@@ -84,7 +84,7 @@
 - name: Set cluster state to deployed
   include_role:
     name: common
-    tasks_from: cluster-state
+    tasks_from: cluster1-state
   vars:
     cluster_state_phase: 'deployed'
     installation_method: 'ipi'
