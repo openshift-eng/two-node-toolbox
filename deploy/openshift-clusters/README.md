@@ -92,6 +92,30 @@ If you want to check the progress of the installation you can review or follow t
 
 > Note: The proxy.env file automatically detects its location and sets the correct absolute path for the kubeconfig, making it work from any directory where it's sourced.
 
+### Alternative: Direct Access from Hypervisor
+
+For direct cluster access **from within the hypervisor host** (not from your local machine), authentication files are automatically copied to a standard location:
+
+```
+~/auth/kubeconfig          # Cluster admin kubeconfig  
+~/auth/kubeadmin-password   # Default admin password
+```
+
+**From the hypervisor host only**, you can access the cluster directly:
+```bash
+# SSH into the hypervisor first
+ssh your-hypervisor-host
+
+# Then access cluster directly (no proxy needed)
+export KUBECONFIG=~/auth/kubeconfig
+oc get nodes
+
+# Get admin password for web console
+cat ~/auth/kubeadmin-password
+```
+
+**Note**: This direct access only works from within the hypervisor. For access from your local machine, use the proxy setup described above.
+
 ### Optional: Accessing the Console WebUI
 
 If you wish to reach the Console WebUI, you can use any preferred proxy extension on your browser to do so.

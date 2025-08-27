@@ -169,6 +169,30 @@ To redeploy a cluster, check the [redeployment](#9-redeployment) section
 
 Since the cluster runs on a remote host, you might need proxy configuration to access it from your local machine. After cluster installation, proxy setup will run to provide the same access as the dev-scripts (IPI) installation method.
 
+### Alternative: Direct Access from Hypervisor
+
+For direct cluster access **from within the hypervisor host** (not from your local machine), authentication files are automatically copied to a standard location:
+
+```
+~/auth/kubeconfig          # Cluster admin kubeconfig  
+~/auth/kubeadmin-password   # Default admin password
+```
+
+**From the hypervisor host only**, you can access the cluster directly:
+```bash
+# SSH into the hypervisor first
+ssh your-hypervisor-host
+
+# Then access cluster directly (no proxy needed)
+export KUBECONFIG=~/auth/kubeconfig
+oc get nodes
+
+# Get admin password for web console
+cat ~/auth/kubeadmin-password
+```
+
+**Note**: This direct access only works from within the hypervisor. For access from your local machine, use the proxy setup described above.
+
 ### CI Builds
 
 For deploying unreleased or development OpenShift builds, kcli supports CI builds from `registry.ci.openshift.org`:

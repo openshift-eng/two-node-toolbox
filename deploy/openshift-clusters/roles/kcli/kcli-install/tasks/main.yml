@@ -22,4 +22,9 @@
     kubeadmin_password_path: "{{ ansible_user_dir }}/.kcli/clusters/{{ test_cluster_name }}/auth/kubeadmin-password"
     cluster_name: "{{ test_cluster_name }}"
 
+- name: Copy authentication files to standard location
+  include_role:
+    name: config
+    tasks_from: copy_auth
+
 # Deployment completed 

@@ -75,6 +75,11 @@
     name: common
     tasks_from: proxy
 
+- name: Copy authentication files to standard location
+  include_role:
+    name: config
+    tasks_from: copy_auth
+
 # PHASE 2: DEPLOYED - Update state after successful completion
 - name: Set cluster state to deployed
   include_role:
