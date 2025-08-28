@@ -74,8 +74,10 @@
 
 - name: Set ksushy IP for BMC simulation for fencing topology
   set_fact:
-    ksushy_ip: "{{ ksushy_ip | default('192.168.122.1') }}"
-  when: topology == "fencing"
+    ksushy_ip: "192.168.122.1"
+  when: 
+    - topology == "fencing"
+    - ksushy_ip is not defined
 
 - name: Display ksushy configuration
   debug:

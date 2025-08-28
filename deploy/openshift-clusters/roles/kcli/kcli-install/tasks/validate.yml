@@ -74,5 +74,4 @@
     name: common
     tasks_from: validate-auth
   vars:
-    pull_secret_path: "{{ pull_secret_path }}"
     ocp_version: "{{ ocp_version }}" 
