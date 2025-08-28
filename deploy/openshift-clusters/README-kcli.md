@@ -183,13 +183,18 @@ For direct cluster access **from within the hypervisor host** (not from your loc
 # SSH into the hypervisor first
 ssh your-hypervisor-host
 
-# Then access cluster directly (no proxy needed)
+# Option 1: Use default kubeconfig location (recommended)
+oc get nodes
+
+# Option 2: Explicitly set KUBECONFIG environment variable
 export KUBECONFIG=~/auth/kubeconfig
 oc get nodes
 
 # Get admin password for web console
 cat ~/auth/kubeadmin-password
 ```
+
+The deployment automatically creates a symlink from `~/.kube/config` to `~/auth/kubeconfig`, so `oc` commands work without setting the `KUBECONFIG` environment variable.
 
 **Note**: This direct access only works from within the hypervisor. For access from your local machine, use the proxy setup described above.
 

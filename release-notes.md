@@ -16,6 +16,11 @@
 - Refactored proxy functionality into dedicated `proxy-setup` role
 - Separate task files for credentials, environment, infrastructure, and container management
 
+#### Hypervisor Authentication Automation
+- Automated cluster authentication file management for direct hypervisor access
+- Authentication files automatically copied to standard `~/auth/` directory on hypervisor
+- Default kubeconfig symlink (`~/.kube/config`) created for seamless `oc` command usage
+
 #### KCLI Deployment
 ```bash
 # Non-interactive fencing deployment
