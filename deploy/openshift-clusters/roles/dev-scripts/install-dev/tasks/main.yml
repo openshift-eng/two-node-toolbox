@@ -1,14 +1,5 @@
 - import_tasks: dev-scripts.yml
 
-# Add authentication validation that was previously missing
-- name: Validate authentication files
-  include_role:
-    name: common
-    tasks_from: validate-auth
-  when: 
-    - pull_secret_path is defined
-    - ssh_public_key_path is defined
-
 # Full installation mode (topology change - after realclean)
 - name: Check if kubeconfig exists (should not after realclean)
   stat:

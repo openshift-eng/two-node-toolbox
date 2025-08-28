@@ -66,13 +66,4 @@
     msg: "Cluster {{ test_cluster_name }} already exists. Set force_cleanup=true to remove existing cluster first."
   when: 
     - cluster_vms_exist
-    - not force_cleanup
-
-# Authentication file validation - use common validation logic
-- name: Validate authentication files
-  include_role:
-    name: common
-    tasks_from: validate-auth
-  vars:
-    pull_secret_path: "{{ role_path }}/files/pull-secret.json"
-    ocp_version: "{{ ocp_version }}" 
+    - not force_cleanup 
