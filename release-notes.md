@@ -1,5 +1,25 @@
 # Two-Node Toolbox Release Notes
 
+## Version 0.5.4 - External Host Support
+*Release Date: September 2025*
+
+### New Features
+
+#### External Host Initialization
+- Added `init-host.yml` playbook for external RHEL host preparation
+- Support for non-AWS environments including Beaker labs and bare metal systems
+- Automated host configuration equivalent to AWS hypervisor initialization
+- RHSM registration, package installation, and dev-scripts preparation
+
+#### Configuration Management
+- Flexible RHSM credential configuration via environment variables or local files
+- Automatic working directory configuration for storage optimization (`/home/dev-scripts`)
+- Essential package installation including golang, make, git, and development tools
+
+See `deploy/openshift-clusters/README-beaker.md` for detailed usage instructions.
+
+---
+
 ## Version 0.5.2 - KCLI Deployment Integration  
 *Release Date: August 2025*
 
