@@ -1,0 +1,18 @@
+# Default variables for init-host playbook
+# Copy this file to vars/init-host.yml.local to override defaults without committing secrets
+
+# RHSM Configuration
+# These can be overridden by environment variables or command line
+rhsm_activation_key: "{{ lookup('env', 'RHSM_ACTIVATION_KEY') | default('') }}"
+rhsm_org: "{{ lookup('env', 'RHSM_ORG') | default('') }}"
+
+# Alternative: uncomment and set your values directly (not recommended for version control)
+# rhsm_activation_key: "your-activation-key-here"
+# rhsm_org: "your-org-id-here"
+
+# Host configuration
+init_user: pitadmin
+hostname_prefix: "{{ ansible_user | default('tnf') }}-dev"
+
+# Deployment behavior
+interactive_mode: false

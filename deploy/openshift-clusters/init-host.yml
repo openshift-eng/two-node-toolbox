@@ -1,0 +1,219 @@
+---
+# Host initialization playbook for Two-Node Toolbox
+# This playbook performs the same initialization tasks as the aws-hypervisor/scripts/init.sh
+# but uses Ansible inventory instead of instance-data files
+
+- hosts: metal_machine
+  gather_facts: yes
+  force_handlers: yes
+
+  # --- Variable Definitions ---
+  vars_files:
+    - vars/init-host.yml
+    - vars/init-host.yml.local  # Optional override file (ignored by git)
+
+  vars:
+    # Additional variables can be defined here or overridden via command line
+
+  # --- Pre-flight Checks ---
+  pre_tasks:
+    - name: Add host key to known_hosts on localhost
+      ansible.builtin.known_hosts:
+        name: "{{ ansible_host }}"
+        key: "{{ lookup('pipe', 'ssh-keyscan -H ' + ansible_host) }}"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Prompt for RHSM activation key (if not provided)
+      ansible.builtin.pause:
+        prompt: "Enter RHSM activation key (or press Enter to skip for interactive registration)"
+        echo: no
+      register: rhsm_key_prompt
+      delegate_to: localhost
+      run_once: true
+      when: 
+        - interactive_mode | bool
+        - rhsm_activation_key is not defined
+
+    - name: Prompt for RHSM organization ID (if activation key provided)
+      ansible.builtin.pause:
+        prompt: "Enter RHSM organization ID"
+      register: rhsm_org_prompt
+      delegate_to: localhost
+      run_once: true
+      when:
+        - interactive_mode | bool
+        - rhsm_activation_key is not defined
+        - rhsm_key_prompt.user_input | default('') | length > 0
+
+    - name: Set RHSM facts from prompts
+      ansible.builtin.set_fact:
+        rhsm_activation_key: "{{ rhsm_key_prompt.user_input | default('') }}"
+        rhsm_org: "{{ rhsm_org_prompt.user_input | default('') }}"
+      when:
+        - interactive_mode | bool
+        - rhsm_activation_key is not defined
+        - rhsm_key_prompt is defined
+
+  tasks:
+    # --- System Configuration ---
+    - name: Set system hostname
+      ansible.builtin.hostname:
+        name: "{{ hostname_prefix }}"
+      become: yes
+
+    # --- User Management ---
+    - name: Check if init user exists
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ init_user }}"
+      register: user_check
+      failed_when: false
+
+    - name: Create init user if not exists
+      block:
+        - name: Create user account
+          ansible.builtin.user:
+            name: "{{ init_user }}"
+            shell: /bin/bash
+            create_home: yes
+            state: present
+          become: yes
+
+        - name: Generate random password
+          ansible.builtin.set_fact:
+            random_password: "{{ lookup('password', '/dev/null length=12 chars=ascii_letters,digits') }}"
+
+        - name: Set user password
+          ansible.builtin.user:
+            name: "{{ init_user }}"
+            password: "{{ random_password | password_hash('sha512') }}"
+          become: yes
+
+        - name: Display user credentials
+          ansible.builtin.debug:
+            msg: |
+              ========================================
+              User: {{ init_user }}
+              Password: {{ random_password }}
+              ========================================
+
+        - name: Add user to sudoers
+          ansible.builtin.lineinfile:
+            path: "/etc/sudoers.d/{{ init_user }}"
+            line: "{{ init_user }}\tALL=(ALL)\tNOPASSWD: ALL"
+            create: yes
+            mode: '0440'
+          become: yes
+      when: user_check.failed
+
+    # --- RHSM Configuration ---
+    - name: Remove existing yum repos
+      ansible.builtin.file:
+        path: /etc/yum.repos.d
+        state: absent
+      become: yes
+
+    - name: Recreate yum repos directory
+      ansible.builtin.file:
+        path: /etc/yum.repos.d
+        state: directory
+        mode: '0755'
+      become: yes
+
+    - name: Configure subscription manager
+      ansible.builtin.command:
+        cmd: subscription-manager config --rhsm.manage_repos=1 --rhsmcertd.disable=redhat-access-insights
+      become: yes
+
+    - name: Register with RHSM using activation key
+      community.general.redhat_subscription:
+        state: present
+        activationkey: "{{ rhsm_activation_key }}"
+        org_id: "{{ rhsm_org }}"
+      become: yes
+      when:
+        - rhsm_activation_key is defined
+        - rhsm_activation_key | length > 0
+        - rhsm_org is defined
+        - rhsm_org | length > 0
+
+    - name: Register with RHSM interactively
+      block:
+        - name: Prompt for RHSM username
+          ansible.builtin.pause:
+            prompt: "Enter RHSM username"
+          register: rhsm_username_prompt
+          delegate_to: localhost
+
+        - name: Prompt for RHSM password
+          ansible.builtin.pause:
+            prompt: "Enter RHSM password"
+            echo: no
+          register: rhsm_password_prompt
+          delegate_to: localhost
+
+        - name: Register with RHSM using credentials
+          community.general.redhat_subscription:
+            state: present
+            username: "{{ rhsm_username_prompt.user_input }}"
+            password: "{{ rhsm_password_prompt.user_input }}"
+            auto_attach: true
+          become: yes
+      when:
+        - rhsm_activation_key is not defined or rhsm_activation_key | length == 0
+
+    - name: Get latest OCP version
+      ansible.builtin.uri:
+        url: https://sippy.dptools.openshift.org/api/releases
+        method: GET
+        return_content: yes
+      register: ocp_releases
+      failed_when: false
+
+    - name: Parse latest GA OCP version
+      ansible.builtin.set_fact:
+        ocp_version: "{{ ((ocp_releases.content | from_json).ga_dates | dict2items | sort(attribute='value') | last).key | default('4.19') }}"
+      when: ocp_releases.status == 200
+
+    - name: Set fallback OCP version
+      ansible.builtin.set_fact:
+        ocp_version: "4.19"
+      when: ocp_releases.status != 200
+
+    - name: Attach to OpenShift pool
+      ansible.builtin.command:
+        cmd: subscription-manager attach --pool=8a85f99c7d76f2fd017d96c411c70667
+      become: yes
+      failed_when: false
+
+    - name: Enable required repositories
+      community.general.rhsm_repository:
+        name:
+          - "rhel-9-for-{{ ansible_architecture }}-appstream-rpms"
+          - "rhel-9-for-{{ ansible_architecture }}-baseos-rpms"
+          - "rhocp-{{ ocp_version }}-for-rhel-9-{{ ansible_architecture }}-rpms"
+        state: enabled
+      become: yes
+
+    - name: Install essential development packages
+      ansible.builtin.dnf:
+        name:
+          - git
+          - make
+          - cockpit
+          - lvm2
+          - jq
+          - golang
+        state: present
+      become: yes
+
+  post_tasks:
+    - name: Host initialization completed
+      ansible.builtin.debug:
+        msg: |
+          Host initialization completed successfully:
+          - Hostname set to: {{ hostname_prefix }}
+          - User '{{ init_user }}' configured with sudo access
+          - RHSM registered and repositories enabled
+          - OpenShift {{ ocp_version }} repositories available
