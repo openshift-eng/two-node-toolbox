@@ -4,3 +4,8 @@ kubeconfig
 kubeadmin-password
 *.pyc
 *.pyo
+
+# Local variable override files
+vars/*.local
+vars/*-local.yml
+vars/*.yml.local
