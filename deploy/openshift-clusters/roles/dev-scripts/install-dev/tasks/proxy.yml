@@ -81,4 +81,4 @@
     restart_policy: always
     net: host
     volumes:
-      - "/home/ec2-user/squid.conf:/etc/squid/squid.conf"
+      - "/home/{{ proxy_user }}/squid.conf:/etc/squid/squid.conf"
