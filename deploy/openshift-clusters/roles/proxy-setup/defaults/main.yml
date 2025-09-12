@@ -3,7 +3,6 @@
 
 # Proxy configuration
 proxy_port: 8213
-proxy_user: root
 
 # Container configuration
 proxy_container_name: external-squid

@@ -2,6 +2,3 @@ dev_scripts_path: openshift-metal3/dev-scripts
 dev_scripts_branch: master
 dev_scripts_src_repo: https://github.com/openshift-metal3/dev-scripts
 test_cluster_name: ostest
-
-# Proxy configuration
-proxy_user: "{{ ansible_user | default('ec2-user') }}"
