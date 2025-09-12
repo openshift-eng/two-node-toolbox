@@ -3,7 +3,7 @@
 
 # Proxy configuration
 proxy_port: 8213
-proxy_user: "{{ ansible_user | default('ec2-user') }}"
+proxy_user: root
 
 # Container configuration
 proxy_container_name: external-squid

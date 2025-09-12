@@ -1,9 +1,14 @@
 ---
 # Setup and start proxy container
 
+- name: Get user home directory
+  shell: "getent passwd {{ proxy_user }} | cut -d: -f6"
+  register: user_home_result
+  changed_when: false
+
 - name: Generate squid configuration from template
   template:
-    dest: "~/squid.conf"
+    dest: "{{ user_home_result.stdout }}/squid.conf"
     src: squid.conf.j2
     mode: '0644'
 
@@ -16,4 +21,4 @@
     restart_policy: always
     network: host
     volumes:
-      - "/home/{{ proxy_user }}/squid.conf:/etc/squid/squid.conf:Z" 
+      - "{{ user_home_result.stdout }}/squid.conf:/etc/squid/squid.conf:Z" 
