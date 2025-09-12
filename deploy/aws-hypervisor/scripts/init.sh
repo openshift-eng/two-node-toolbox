@@ -17,6 +17,7 @@ cat > /tmp/profile.env.remote << EOF
 export STACK_NAME="${STACK_NAME}"
 export RHSM_ACTIVATION_KEY="${RHSM_ACTIVATION_KEY}"
 export RHSM_ORG="${RHSM_ORG}"
+export DEFAULT_OCP_VERSION="${DEFAULT_OCP_VERSION}"
 EOF
 scp /tmp/profile.env.remote "$instance_ip:profile.env"
 rm /tmp/profile.env.remote

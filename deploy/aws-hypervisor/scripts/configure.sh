@@ -6,11 +6,12 @@ sudo hostnamectl set-hostname "aws-${STACK_NAME}"
 
 function get_ocp_version() {
     local latest_ga_ocp_version
+    local default_version="${DEFAULT_OCP_VERSION:-4.20}"
     if latest_ga_ocp_version="$(curl -sL https://sippy.dptools.openshift.org/api/releases | jq -re '.ga_dates | to_entries | max_by(.value) | .key')";
     then
-        echo "${latest_ga_ocp_version:-4.19}"
+        echo "${latest_ga_ocp_version:-$default_version}"
     else
-        echo "4.19"
+        echo "$default_version"
     fi
 }
 
