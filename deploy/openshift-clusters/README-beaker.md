@@ -51,6 +51,7 @@ You have several options for providing Red Hat subscription credentials:
 export RHSM_ACTIVATION_KEY="your-activation-key"
 export RHSM_ORG="your-organization-id"
 ```
+See [hands-off deployment](../aws-hypervisor/README.md#automated-rhsm-registration-hands-off-deployment) for more details on how to obtain these values
 
 #### Option B: Local Variable File
 ```bash
