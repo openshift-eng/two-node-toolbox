@@ -173,12 +173,12 @@
 
     - name: Parse latest GA OCP version
       ansible.builtin.set_fact:
-        ocp_version: "{{ ((ocp_releases.content | from_json).ga_dates | dict2items | sort(attribute='value') | last).key | default('4.19') }}"
+        ocp_version: "{{ ((ocp_releases.content | from_json).ga_dates | dict2items | sort(attribute='value') | last).key | default(default_ocp_version) }}"
       when: ocp_releases.status == 200
 
     - name: Set fallback OCP version
       ansible.builtin.set_fact:
-        ocp_version: "4.19"
+        ocp_version: "{{ default_ocp_version }}"
       when: ocp_releases.status != 200
 
     - name: Attach to OpenShift pool

@@ -16,3 +16,6 @@ hostname_prefix: "{{ ansible_user | default('tnf') }}-dev"
 
 # Deployment behavior
 interactive_mode: false
+
+# OpenShift version configuration
+default_ocp_version: "4.20"
