@@ -1,14 +1,22 @@
 ---
 # Setup and start proxy container
 
-- name: Get user home directory
-  shell: "getent passwd {{ proxy_user }} | cut -d: -f6"
-  register: user_home_result
+- name: Get current user and home directory
+  shell: |
+    USER=$(whoami)
+    HOME_DIR=$(getent passwd $USER | cut -d: -f6)
+    echo "$USER:$HOME_DIR"
+  register: user_home_info
   changed_when: false
+
+- name: Set user and home facts
+  set_fact:
+    proxy_user: "{{ user_home_info.stdout.split(':')[0] }}"
+    proxy_home: "{{ user_home_info.stdout.split(':')[1] }}"
 
 - name: Generate squid configuration from template
   template:
-    dest: "{{ user_home_result.stdout }}/squid.conf"
+    dest: "{{ proxy_home }}/squid.conf"
     src: squid.conf.j2
     mode: '0644'
 
@@ -21,4 +29,4 @@
     restart_policy: always
     network: host
     volumes:
-      - "{{ user_home_result.stdout }}/squid.conf:/etc/squid/squid.conf:Z" 
+      - "{{ proxy_home }}/squid.conf:/etc/squid/squid.conf:Z" 

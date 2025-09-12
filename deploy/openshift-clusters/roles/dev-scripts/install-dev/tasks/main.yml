@@ -62,16 +62,9 @@
     marker: "# {mark} OPENSHIFT ALIAS BLOCK"
     block: "{{ lookup('template', 'oc_aliases.sh.j2') }}"
 
-- name: Get current user for proxy configuration
-  command: whoami
-  register: current_user_result
-  changed_when: false
-
 - name: Setup proxy configuration
   include_role:
     name: proxy-setup
-  vars:
-    proxy_user: "{{ current_user_result.stdout }}"
 
 - name: Copy authentication files to standard location
   include_role:
