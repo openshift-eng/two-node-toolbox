@@ -68,6 +68,7 @@ EXIT_OK=0
 EXIT_GENERIC=1
 EXIT_STONITH_MISSING=20
 EXIT_PACEMAKER_OFFLINE=21
+EXIT_FENCING_SECRETS_MISMATCH=26
 EXIT_DAEMONS_BAD=22
 EXIT_ETCD_NOT_READY=23
 EXIT_ETCD_FATAL=24
@@ -394,13 +395,17 @@ check_fencing_secret_bindings() {
   local missing=0 n
   for n in "$NODE_A" "$NODE_B"; do
     if ! find_fencing_secret_for_node "$n" >/dev/null; then
-      warn "No fencing credential secret found that matches node hostname '$n'.
+      err "No fencing credential secret found that matches node hostname '$n'.
             If you installed with FQDNs, ensure the secret(s)
             use the same hostname form used by the cluster (short vs FQDN)."
       missing=1
     fi
   done
-  (( missing == 0 )) || warn "Fencing credentials mismatch may prevent STONITH from targeting nodes correctly."
+  if (( missing == 1 )); then
+    err "Fencing credentials mismatch may prevent STONITH from targeting nodes correctly."
+    return 1
+  fi
+  return 0
 }
 
 # -------- Conductor switch + fencing --------
@@ -465,7 +470,7 @@ fi
 ok "Both nodes ONLINE"
 check_daemon_status || exit $EXIT_DAEMONS_BAD
 wait_etcd
-check_fencing_secret_bindings
+check_fencing_secret_bindings || exit $EXIT_FENCING_SECRETS_MISMATCH
 ok "[PASS] Non-disruptive checks complete"
 
 if ! $DISRUPTIVE; then
