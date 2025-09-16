@@ -2,7 +2,7 @@
 set -euo pipefail
 export LANG=C
 
-# fencing_validator
+# fencing-validator
 # - Non-disruptive: verify STONITH present+enabled, both nodes online, etcd has 2 started non-learner members, Daemon status active
 # - Disruptive (optional): fence node A then node B (one pass), auto-switching the conductor to avoid self-fencing
 # - Transport: auto (prefer SSH to both), or forced ssh/ocdebug
@@ -10,7 +10,7 @@ export LANG=C
 usage() {
   cat <<'EOF'
 Usage:
-  fencing_validator [--user <ssh-user>] [--ssh-key <path>]
+  fencing-validator [--user <ssh-user>] [--ssh-key <path>]
                        [--kubeconfig <path>]
                        [--transport auto|ssh|ocdebug]
                        [--hosts "<hostA,hostB>"] [--host-a <host>] [--host-b <host>]
@@ -63,6 +63,16 @@ OC_BIN="${OC_BIN:-oc}"
 OC_REQ_TIMEOUT="${OC_REQ_TIMEOUT:-10s}"
 CMD_EXEC_TIMEOUT_SECS="${CMD_EXEC_TIMEOUT_SECS:-60s}"
 
+# -------- Exit codes --------
+EXIT_OK=0
+EXIT_GENERIC=1
+EXIT_STONITH_MISSING=20
+EXIT_PACEMAKER_OFFLINE=21
+EXIT_DAEMONS_BAD=22
+EXIT_ETCD_NOT_READY=23
+EXIT_ETCD_FATAL=24
+EXIT_REFUSE_FENCE_UNSTABLE=30
+
 # valreq <flag> <value>
 # Returns success (0) if <value> exists and is not another option (i.e., doesn't start with '-').
 # Used in argument parsing to validate that an option expecting a value actually has one.
@@ -70,25 +80,25 @@ valreq(){ [[ -n "${2-}" && "$2" != -* ]]; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --user)       valreq "$1" "${2-}" || { err "--user requires a value"; exit 1; }; SSH_USER="$2"; shift 2;;
-    --ssh-key)    valreq "$1" "${2-}" || { err "--ssh-key requires a value"; exit 1; }; SSH_KEY="$2"; shift 2;;
-    --kubeconfig) valreq "$1" "${2-}" || { err "--kubeconfig requires a value"; exit 1; }; KUBECONFIG_PATH="$2"; shift 2;;
-    --transport)  valreq "$1" "${2-}" || { err "--transport requires a value"; exit 1; }; TRANSPORT="$2"; shift 2;;
-    --timeout)    valreq "$1" "${2-}" || { err "--timeout requires a value"; exit 1; }; TIMEOUT="$2"; shift 2;;
-    --hosts)      valreq "$1" "${2-}" || { err "--hosts requires a value like 'A,B'"; exit 1; }; IFS=',' read -r IP_A IP_B <<<"$2"; shift 2;;
-    --host-a)     valreq "$1" "${2-}" || { err "--host-a requires a value"; exit 1; }; IP_A="$2"; shift 2;;
-    --host-b)     valreq "$1" "${2-}" || { err "--host-b requires a value"; exit 1; }; IP_B="$2"; shift 2;;
+    --user)       valreq "$1" "${2-}" || { err "--user requires a value"; exit $EXIT_GENERIC; }; SSH_USER="$2"; shift 2;;
+    --ssh-key)    valreq "$1" "${2-}" || { err "--ssh-key requires a value"; exit $EXIT_GENERIC; }; SSH_KEY="$2"; shift 2;;
+    --kubeconfig) valreq "$1" "${2-}" || { err "--kubeconfig requires a value"; exit $EXIT_GENERIC; }; KUBECONFIG_PATH="$2"; shift 2;;
+    --transport)  valreq "$1" "${2-}" || { err "--transport requires a value"; exit $EXIT_GENERIC; }; TRANSPORT="$2"; shift 2;;
+    --timeout)    valreq "$1" "${2-}" || { err "--timeout requires a value"; exit $EXIT_GENERIC; }; TIMEOUT="$2"; shift 2;;
+    --hosts)      valreq "$1" "${2-}" || { err "--hosts requires a value like 'A,B'"; exit $EXIT_GENERIC; }; IFS=',' read -r IP_A IP_B <<<"$2"; shift 2;;
+    --host-a)     valreq "$1" "${2-}" || { err "--host-a requires a value"; exit $EXIT_GENERIC; }; IP_A="$2"; shift 2;;
+    --host-b)     valreq "$1" "${2-}" || { err "--host-b requires a value"; exit $EXIT_GENERIC; }; IP_B="$2"; shift 2;;
     --disruptive) DISRUPTIVE=true; shift;;
     --dry-run)    DRY_RUN=true; shift;;
     -h|--help)    usage; exit 0;;
-    *) err "Unknown arg: $1"; usage; exit 1;;
+    *) err "Unknown arg: $1"; usage; exit $EXIT_GENERIC;;
   esac
 done
 
 IP_A="${IP_A//[[:space:]]/}"; IP_B="${IP_B//[[:space:]]/}"
 
-[[ "$TRANSPORT" =~ ^(auto|ssh|ocdebug)$ ]] || { err "--transport must be auto|ssh|ocdebug"; exit 1; }
-[[ "$TIMEOUT" =~ ^[0-9]+$ ]] || { err "Invalid --timeout '$TIMEOUT'"; exit 1; }
+[[ "$TRANSPORT" =~ ^(auto|ssh|ocdebug)$ ]] || { err "--transport must be auto|ssh|ocdebug"; exit $EXIT_GENERIC; }
+[[ "$TIMEOUT" =~ ^[0-9]+$ ]] || { err "Invalid --timeout '$TIMEOUT'"; exit $EXIT_GENERIC; }
 
 [[ -n "$KUBECONFIG_PATH" ]] && export KUBECONFIG="$KUBECONFIG_PATH"
 log "Checking cluster access with '$OC_BIN'..."
@@ -134,18 +144,28 @@ ssh_ok(){ ssh_cmd "$1" true >/dev/null 2>&1; }
 _sudo_check() {
   for h in "$IP_A" "$IP_B"; do
     ssh_cmd "$h" "sudo -n true" >/dev/null 2>&1 || {
-      err "Passwordless sudo required on $h for SSH mode."; exit 1; }
+      err "Passwordless sudo required on $h for SSH mode."; exit $EXIT_GENERIC; }
   done
 }
 
 # -------- Discover nodes --------
 log "Detecting control-plane nodes…"
-mapfile -t A < <(timeout "$CMD_EXEC_TIMEOUT_SECS" "$OC_BIN" get nodes -l node-role.kubernetes.io/master= -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
-mapfile -t B < <(timeout "$CMD_EXEC_TIMEOUT_SECS" "$OC_BIN" get nodes -l node-role.kubernetes.io/control-plane= -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
+MIN_OCP="4.20.0"
+OCP_VER="$(oc_run get clusterversion version -o jsonpath='{.status.desired.version}' 2>/dev/null || true)"
+if [[ -n "$OCP_VER" ]]; then
+  base_ver="${OCP_VER%%[-+]*}"
+  if [[ "$(printf '%s\n%s\n' "$base_ver" "$MIN_OCP" | sort -V | head -n1)" != "$MIN_OCP" ]]; then
+    err "OpenShift $OCP_VER detected; this validator requires >= $MIN_OCP"; exit $EXIT_GENERIC
+  fi
+fi
 
-declare -a CP_NODES=(); declare -A seen=()
-for n in "${A[@]}" "${B[@]}"; do [[ -z "${seen["$n"]+x}" ]] && { CP_NODES+=("$n"); seen["$n"]=1; }; done
-[[ ${#CP_NODES[@]} -eq 2 ]] || { err "Expected exactly 2 control-plane nodes, got ${#CP_NODES[@]}: ${CP_NODES[*]-}"; exit 1; }
+log "Detecting control-plane nodes (label: node-role.kubernetes.io/control-plane)…"
+mapfile -t CP_NODES < <(
+  timeout "$CMD_EXEC_TIMEOUT_SECS" "$OC_BIN" get nodes \
+    -l node-role.kubernetes.io/control-plane= \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true
+)
+[[ ${#CP_NODES[@]} -eq 2 ]] || { err "Expected exactly 2 control-plane nodes, got ${#CP_NODES[@]}: ${CP_NODES[*]-}"; exit $EXIT_GENERIC; }
 NODE_A="${CP_NODES[0]}"; NODE_B="${CP_NODES[1]}"
 
 get_internal_ip() {
@@ -168,44 +188,30 @@ case "$TRANSPORT" in
     elif ocdebug_ok "$NODE_A" && ocdebug_ok "$NODE_B"; then
       TRANSPORT=ocdebug; CONDUCTOR="$NODE_B"; log "Using oc debug; conductor=$CONDUCTOR"
     else
-      err "Auto mode: neither SSH nor oc debug reachable on both nodes."; exit 1
+      err "Auto mode: neither SSH nor oc debug reachable on both nodes."; exit $EXIT_GENERIC
     fi
     ;;
   ssh)
-    (ssh_ok "$IP_A" && ssh_ok "$IP_B") || { err "SSH not available to both nodes"; exit 1; }
+    (ssh_ok "$IP_A" && ssh_ok "$IP_B") || { err "SSH not available to both nodes"; exit $EXIT_GENERIC; }
     CONDUCTOR="$IP_B"; _sudo_check; log "Using SSH; conductor=$CONDUCTOR"
     ;;
   ocdebug)
-    (ocdebug_ok "$NODE_A" && ocdebug_ok "$NODE_B") || { err "oc debug not available on both nodes"; exit 1; }
+    (ocdebug_ok "$NODE_A" && ocdebug_ok "$NODE_B") || { err "oc debug not available on both nodes"; exit $EXIT_GENERIC; }
     CONDUCTOR="$NODE_B"; log "Using oc debug; conductor=$CONDUCTOR"
     ;;
 esac
 
 # -------- Pacemaker names --------
 short() { echo "${1%%.*}"; }
-resolve_pcmk_name() {
-  local n="$1"
-  if host_run "$CONDUCTOR" "command -v crm_node >/dev/null 2>&1"; then
-    host_run "$CONDUCTOR" "crm_node -l" | awk -v n="$n" -v s="$(short "$n")" '$2==n||$2==s{print $2; found=1} END{if(!found) print s}'
-  else
-    short "$n"
-  fi
-}
-PCMK_A="$(resolve_pcmk_name "$NODE_A")"
-PCMK_B="$(resolve_pcmk_name "$NODE_B")"
-log "Mapping: $NODE_A -> $PCMK_A ; $NODE_B -> $PCMK_B"
+PCMK_A="$NODE_A"
+PCMK_B="$NODE_B"
+log "Mapping: $NODE_A -> $(short "$PCMK_A") ; $NODE_B -> $(short "$PCMK_B")"
 
 # -------- Health/waits --------
 node_ready(){
   local n="$1"
   local s; s="$("$OC_BIN" get node "$n" --request-timeout=10s -o jsonpath='{range .status.conditions[?(@.type=="Ready")]}{.status}{end}' 2>/dev/null || true)"
   [[ "$s" == *True* ]]
-}
-
-pcs_nodes_line(){
-  local out
-  out="$(host_run "$CONDUCTOR" "pcs status nodes 2>/dev/null || crm_mon -1 2>/dev/null" 2>/dev/null || true)"
-  awk '/^[[:space:]]*Online:/{print; exit}' <<<"$out"
 }
 
 pcs_nodes_names() {
@@ -243,14 +249,14 @@ wait_ready(){
   log "Waiting for '$n' Ready (API)…"
   while (( SECONDS < deadline )); do
     node_ready "$n" && { ok "$n Ready (API)"; break; }
-    sleep 8
+    sleep 5
   done
   (( SECONDS < deadline )) || { err "Timeout waiting Ready for $n"; return 1; }
   deadline=$((SECONDS+TIMEOUT))
   log "Waiting for '$n' ONLINE (Pacemaker)…"
   while (( SECONDS < deadline )); do
     pcmkonline "$n" && { ok "$n ONLINE (Pacemaker)"; return 0; }
-    sleep 6
+    sleep 5
   done
   err "Timeout waiting Pacemaker ONLINE for $n"; return 1
 }
@@ -305,15 +311,7 @@ node_exec_target(){
 
 etcd_two_started() {
   local tgt="$1" out rc
-  out="$(host_run "$tgt" "podman exec etcd sh -lc 'ETCDCTL_API=3 etcdctl member list -w table'" 2>&1)"
-  rc=$?
-  if grep -qE '^\|' <<<"$out"; then
-    awk -F'|' '/^\|/{
-      for(i=1;i<=NF;i++){gsub(/^[ \t]+|[ \t]+$/,"",$i)}
-      if(tolower($3)=="started" && tolower($7)=="false") c++
-    } END{ exit !(c>=2) }' <<<"$out"
-    return
-  fi
+  out="$(host_run "$tgt" "podman exec etcd sh -lc 'ETCDCTL_API=3 etcdctl member list -w table'" 2>&1)"; rc=$?
   if (( rc != 0 )); then
     if grep -Eqi 'no such container|container state improper|not running|missing required container_id' <<<"$out"; then
       return 1
@@ -321,7 +319,17 @@ etcd_two_started() {
     err "etcdctl failed on $tgt: ${out##*$'\n'}"
     return 2
   fi
-  return 1
+
+  for ip in "$IP_A" "$IP_B"; do
+    awk -F'|' -v ip="$ip" '
+      /^\|/{
+        for(i=1;i<=NF;i++){gsub(/^[ \t]+|[ \t]+$/,"",$i)}
+        if (index($0, ip) && tolower($2)=="started" && tolower($6)=="false") found=1
+      }
+      END{ exit found?0:1 }
+    ' <<<"$out" || return 1
+  done
+  return 0
 }
 
 etcd_ready(){
@@ -343,17 +351,56 @@ wait_etcd(){
   local deadline=$((SECONDS + TIMEOUT / 2)) rc start=$SECONDS next=$((SECONDS + 30))
   log "Waiting for etcd to report 2 started non-learner members (max wait: $((TIMEOUT/2))s)…"
   while (( SECONDS < deadline )); do
-    etcd_ready; rc=$?
+    rc=0
+    if ! etcd_ready; then
+        rc=$?
+    fi
     (( rc==0 )) && { ok "etcd has 2 started voters (waited $((SECONDS-start))s)"; return 0; }
-    (( rc==2 )) && { err "etcd check failed (fatal) after $((SECONDS-start))s"; return 1; }
+    (( rc==2 )) && { err "etcd check failed (fatal) after $((SECONDS-start))s"; exit $EXIT_ETCD_FATAL; }
     (( SECONDS >= next )) && {
       warn "[$((SECONDS-start))s elapsed, $((deadline-SECONDS))s remaining] Current etcd member status:"
       host_run "$(node_exec_target "$NODE_A")" "podman exec etcd sh -lc 'ETCDCTL_API=3 etcdctl member list -w table' 2>/dev/null | head -n 5" || true
       next=$((SECONDS + 30))
     }
-    sleep 6
+    sleep 5
   done
-  err "Timeout waiting for etcd quorum (2 started voters)"
+  err "Timeout waiting for etcd quorum (two started non-learner CP voters)"
+  exit $EXIT_ETCD_NOT_READY
+}
+
+# -------- fencing credentials secret --------
+# find a fencing credential secret that matches a node's hostname.
+#  1) secrets prefixed with 'fencing-credentials-<name>'
+#  2) exact match on FQDN or short form
+#  3) optional label or annotation hints, if present
+find_fencing_secret_for_node() {
+  local node="$1" ns="openshift-etcd"
+  local short_node
+  short_node="$(short "$node")"
+  esc() { sed -E 's/[][^$.|?*+(){}\\]/\\&/g'; }
+  local node_re short_re
+  node_re="$(printf '%s' "$node" | esc)"
+  short_re="$(printf '%s' "$short_node" | esc)"
+  local names
+  names="$(oc_run -n "$ns" get secret \
+            -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
+  grep -E "^fencing-credentials-(${node_re}|${short_re})$" <<<"$names" | head -n1 && return 0
+  grep -E "^fencing-credentials-.*(${node_re}|${short_re})($|[^[:alnum:]].*)" <<<"$names" | head -n1 && return 0
+  return 1
+}
+
+
+check_fencing_secret_bindings() {
+  local missing=0 n
+  for n in "$NODE_A" "$NODE_B"; do
+    if ! find_fencing_secret_for_node "$n" >/dev/null; then
+      warn "No fencing credential secret found that matches node hostname '$n'.
+            If you installed with FQDNs, ensure the secret(s)
+            use the same hostname form used by the cluster (short vs FQDN)."
+      missing=1
+    fi
+  done
+  (( missing == 0 )) || warn "Fencing credentials mismatch may prevent STONITH from targeting nodes correctly."
 }
 
 # -------- Conductor switch + fencing --------
@@ -385,7 +432,7 @@ fence(){
       err "Dispatching fence for '$t' via ocdebug failed to start"
       return 1
     fi
-    sleep 2
+    sleep 5
     return 0
   fi
 
@@ -410,36 +457,37 @@ dry_run_plan() {
 # -------- Run --------
 log "Mode: transport=$TRANSPORT disruptive=$DISRUPTIVE dry-run=$DRY_RUN"
 log "=== Non-disruptive validation ==="
-check_stonith
+check_stonith || exit $EXIT_STONITH_MISSING
 if ! ( pcmkonline "$PCMK_A" && pcmkonline "$PCMK_B" ); then
   err "Both nodes must be ONLINE (Pacemaker)"
-  exit 2
+  exit $EXIT_PACEMAKER_OFFLINE
 fi
 ok "Both nodes ONLINE"
-check_daemon_status || exit 2
-wait_etcd || exit 2
+check_daemon_status || exit $EXIT_DAEMONS_BAD
+wait_etcd
+check_fencing_secret_bindings
 ok "[PASS] Non-disruptive checks complete"
 
 if ! $DISRUPTIVE; then
   $DRY_RUN && dry_run_plan
   echo "Done (non-disruptive)."
-  exit 0
+  exit $EXIT_OK
 fi
 
-$DRY_RUN && { dry_run_plan; exit 0; }
+$DRY_RUN && { dry_run_plan; exit $EXIT_OK; }
 
 log "=== Disruptive validation ==="
 # Fence A
 switch_conductor_for "$NODE_A"
 log "Fencing $NODE_A (PCMK: $PCMK_A)"
 fence "$PCMK_A"
-wait_not_ready "$NODE_A"; wait_ready "$NODE_A"; wait_etcd || exit 2; check_daemon_status || exit 2
+wait_not_ready "$NODE_A"; wait_ready "$NODE_A"; wait_etcd; check_daemon_status || exit $EXIT_DAEMONS_BAD
 
 # Fence B
 switch_conductor_for "$NODE_B"
 log "Fencing $NODE_B (PCMK: $PCMK_B)"
-wait_etcd || { err "etcd not stable; refusing to fence $NODE_B"; exit 2; }
+wait_etcd
 fence "$PCMK_B"
-wait_not_ready "$NODE_B"; wait_ready "$NODE_B"; wait_etcd || exit 2; check_daemon_status || exit 2
+wait_not_ready "$NODE_B"; wait_ready "$NODE_B"; wait_etcd; check_daemon_status || exit $EXIT_DAEMONS_BAD
 
 ok "Disruptive validation PASSED"
