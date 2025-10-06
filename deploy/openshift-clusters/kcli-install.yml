@@ -95,4 +95,12 @@
 
   - name: "Final verification message"
     ansible.builtin.debug:
-      msg: "Installation tasks have completed for {{ topology }} topology." 
+      msg: |
+        Installation tasks have completed for {{ topology }} topology.
+        
+        Next steps:
+        1. Source the proxy environment from anywhere:
+           source {{ playbook_dir }}/proxy.env
+           (or from openshift-clusters directory: source proxy.env)
+        2. Verify cluster access: oc get nodes
+        3. Access the cluster console if needed
