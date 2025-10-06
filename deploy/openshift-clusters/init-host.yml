@@ -24,6 +24,22 @@
       delegate_to: localhost
       run_once: true
 
+    - name: Check RHSM registration status
+      ansible.builtin.command:
+        cmd: subscription-manager status
+      register: rhsm_status
+      become: yes
+      failed_when: false
+      changed_when: false
+
+    - name: Set RHSM registration fact
+      ansible.builtin.set_fact:
+        rhsm_already_registered: "{{ rhsm_status.rc == 0 }}"
+
+    - name: Display RHSM registration status
+      ansible.builtin.debug:
+        msg: "System is {{ 'already' if rhsm_already_registered else 'not' }} registered with RHSM"
+
     - name: Prompt for RHSM activation key (if not provided)
       ansible.builtin.pause:
         prompt: "Enter RHSM activation key (or press Enter to skip for interactive registration)"
@@ -32,6 +48,7 @@
       delegate_to: localhost
       run_once: true
       when: 
+        - not rhsm_already_registered
         - interactive_mode | bool
         - rhsm_activation_key is not defined
 
@@ -42,6 +59,7 @@
       delegate_to: localhost
       run_once: true
       when:
+        - not rhsm_already_registered
         - interactive_mode | bool
         - rhsm_activation_key is not defined
         - rhsm_key_prompt.user_input | default('') | length > 0
@@ -51,6 +69,7 @@
         rhsm_activation_key: "{{ rhsm_key_prompt.user_input | default('') }}"
         rhsm_org: "{{ rhsm_org_prompt.user_input | default('') }}"
       when:
+        - not rhsm_already_registered
         - interactive_mode | bool
         - rhsm_activation_key is not defined
         - rhsm_key_prompt is defined
@@ -126,42 +145,45 @@
         cmd: subscription-manager config --rhsm.manage_repos=1 --rhsmcertd.disable=redhat-access-insights
       become: yes
 
-    - name: Register with RHSM using activation key
-      community.general.redhat_subscription:
-        state: present
-        activationkey: "{{ rhsm_activation_key }}"
-        org_id: "{{ rhsm_org }}"
-      become: yes
-      when:
-        - rhsm_activation_key is defined
-        - rhsm_activation_key | length > 0
-        - rhsm_org is defined
-        - rhsm_org | length > 0
-
-    - name: Register with RHSM interactively
+    - name: RHSM Registration Block
       block:
-        - name: Prompt for RHSM username
-          ansible.builtin.pause:
-            prompt: "Enter RHSM username"
-          register: rhsm_username_prompt
-          delegate_to: localhost
-
-        - name: Prompt for RHSM password
-          ansible.builtin.pause:
-            prompt: "Enter RHSM password"
-            echo: no
-          register: rhsm_password_prompt
-          delegate_to: localhost
-
-        - name: Register with RHSM using credentials
+        - name: Register with RHSM using activation key
           community.general.redhat_subscription:
             state: present
-            username: "{{ rhsm_username_prompt.user_input }}"
-            password: "{{ rhsm_password_prompt.user_input }}"
-            auto_attach: true
+            activationkey: "{{ rhsm_activation_key }}"
+            org_id: "{{ rhsm_org }}"
           become: yes
-      when:
-        - rhsm_activation_key is not defined or rhsm_activation_key | length == 0
+          when:
+            - rhsm_activation_key is defined
+            - rhsm_activation_key | length > 0
+            - rhsm_org is defined
+            - rhsm_org | length > 0
+
+        - name: Register with RHSM interactively
+          block:
+            - name: Prompt for RHSM username
+              ansible.builtin.pause:
+                prompt: "Enter RHSM username"
+              register: rhsm_username_prompt
+              delegate_to: localhost
+
+            - name: Prompt for RHSM password
+              ansible.builtin.pause:
+                prompt: "Enter RHSM password"
+                echo: no
+              register: rhsm_password_prompt
+              delegate_to: localhost
+
+            - name: Register with RHSM using credentials
+              community.general.redhat_subscription:
+                state: present
+                username: "{{ rhsm_username_prompt.user_input }}"
+                password: "{{ rhsm_password_prompt.user_input }}"
+                auto_attach: true
+              become: yes
+          when:
+            - rhsm_activation_key is not defined or rhsm_activation_key | length == 0
+      when: not rhsm_already_registered
 
     - name: Get latest OCP version
       ansible.builtin.uri:
@@ -215,5 +237,5 @@
           Host initialization completed successfully:
           - Hostname set to: {{ hostname_prefix }}
           - User '{{ init_user }}' configured with sudo access
-          - RHSM registered and repositories enabled
+          - RHSM: {{ 'Already registered (skipped)' if rhsm_already_registered else 'Registered and repositories enabled' }}
           - OpenShift {{ ocp_version }} repositories available
