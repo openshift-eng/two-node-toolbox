@@ -2,8 +2,5 @@ deploy/openshift-clusters/roles/install-dev/files/config_arbiter.sh
 deploy/openshift-clusters/roles/install-dev/files/config_fencing.sh
 deploy/openshift-clusters/inventory-backup/
 .cursorrules
-deploy/openshift-clusters/vars/kcli-install.yml
 CLAUDE.md
-deploy/openshift-clusters/roles/kcli/kcli-install/defaults/main.yml
-kcli
-kcli/*
+deploy/openshift-clusters/vars/kcli.yml
