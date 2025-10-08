@@ -44,9 +44,10 @@
                   HTTPS_PROXY: "{{ env_vars_output.stdout_lines | select('match', '^HTTPS_PROXY=.*') | first | regex_replace('^HTTPS_PROXY=', '') }}"
                   NO_PROXY: "{{ env_vars_output.stdout_lines | select('match', '^NO_PROXY=.*') | first | regex_replace('^NO_PROXY=', '') }}"
 
-            - name: Include kcli-redfish role with proxy environment variables
+            - name: Include kcli-redfish post-installation tasks with proxy environment variables
               include_role:
                 name: kcli/kcli-redfish
+                tasks_from: post-installation.yml
               vars:
                 proxy_kubeconfig: "{{ proxy_env_vars.KUBECONFIG }}"
                 proxy_k8s_auth_proxy: "{{ proxy_env_vars.K8S_AUTH_PROXY }}"
@@ -76,9 +77,10 @@
                   - Valid KUBECONFIG environment variable or ~/.kube/config
                   - Direct network access to the OpenShift cluster API
 
-            - name: Include kcli-redfish role for direct cluster access
+            - name: Include kcli-redfish post-installation tasks for direct cluster access
               include_role:
                 name: kcli/kcli-redfish
+                tasks_from: post-installation.yml
 
           when: not proxy_env_file.stat.exists
 

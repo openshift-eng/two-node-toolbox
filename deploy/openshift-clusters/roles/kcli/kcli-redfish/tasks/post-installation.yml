@@ -1,0 +1,45 @@
+---
+# Post-installation stonith configuration tasks
+# These run AFTER cluster installation is complete
+
+- name: Get cluster nodes
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Node
+    label_selectors:
+      - "node-role.kubernetes.io/control-plane="
+  register: cluster_nodes
+  delegate_to: localhost
+  environment:
+    KUBECONFIG: "{{ proxy_kubeconfig | default(omit) }}"
+    K8S_AUTH_PROXY: "{{ proxy_k8s_auth_proxy | default(omit) }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default(omit) }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default(omit) }}"
+    NO_PROXY: "{{ proxy_no_proxy | default(omit) }}"
+
+- name: Validate cluster nodes found
+  assert:
+    that:
+      - cluster_nodes.resources is defined
+      - cluster_nodes.resources | length > 0
+    fail_msg: "No control plane nodes found in the cluster"
+  delegate_to: localhost
+
+- name: Extract node names
+  set_fact:
+    node_names: "{{ cluster_nodes.resources | map(attribute='metadata.name') | list }}"
+  delegate_to: localhost
+
+- name: Display discovered nodes
+  debug:
+    msg: "Found cluster nodes: {{ node_names }}"
+  delegate_to: localhost
+
+- name: Configure stonith for each node
+  include_tasks: configure_stonith.yml
+  loop: "{{ node_names }}"
+  loop_control:
+    loop_var: current_node_name
+
+- name: Verify stonith configuration
+  include_tasks: verify_stonith.yml

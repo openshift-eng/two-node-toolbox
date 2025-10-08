@@ -69,7 +69,16 @@
       # Final confirmation pause runs when interactive_mode is not defined or is true
       when: interactive_mode is not defined or interactive_mode | bool
 
+    # Run kcli-install prerequisites first (needed for kcli-redfish)
+    - name: Run kcli-install prerequisites
+      include_role:
+        name: kcli/kcli-install
+        tasks_from: prerequisites.yml
+
   roles:
+    # Start ksushy BEFORE cluster installation (required for 4.20+)
+    - role: kcli/kcli-redfish
+      when: topology == "fencing"
     - kcli/kcli-install
 
   vars_files:
@@ -84,7 +93,7 @@
       kubeconfig_path: "{{ ansible_user_dir }}/.kcli/clusters/{{ test_cluster_name }}/auth/kubeconfig"
       kubeadmin_password_path: "{{ ansible_user_dir }}/.kcli/clusters/{{ test_cluster_name }}/auth/kubeadmin-password"
 
-  # Automatically configure Redfish BMC simulation for fencing topology
+  # Configure stonith fencing after cluster installation
   - name: Configure Redfish BMC simulation for fencing topology
     shell: ansible-playbook kcli-redfish.yml -i {{ inventory_file | default('inventory.ini') }}
     args:

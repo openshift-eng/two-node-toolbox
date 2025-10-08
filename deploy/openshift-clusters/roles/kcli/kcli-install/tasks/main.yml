@@ -1,9 +1,6 @@
 ---
 # kcli-install role main tasks
 
-- name: Check prerequisites
-  include_tasks: prerequisites.yml
-
 - name: Validate configuration
   include_tasks: validate.yml
 

@@ -105,7 +105,7 @@ If you're installing a specific openshift release image, you will need to set th
 - `bmc_password`: BMC password (default: "admin123")
 - `bmc_driver`: BMC driver type - "redfish" or "ipmi" (default: "redfish")
 - `ksushy_ip`: IP address for ksushy BMC simulator (default: ansible_default_ipv4.address)
-- `ksushy_port`: Port for ksushy BMC simulator (default: 8000)
+- `ksushy_port`: Port for ksushy BMC simulator (default: 9000)
 
 ### Arbiter Configuration (when topology="arbiter")
 
