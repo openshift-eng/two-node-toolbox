@@ -13,10 +13,9 @@ ctlplanes: 2
 workers: 0
 
 # OpenShift version configuration
-ocp_version: stable
-ocp_tag: '4.19'
-openshift_release_image: ""  # Optional: override with specific release image
-ci_token: ""  # Required for CI builds if not using OPENSHIFT_CI=true
+ocp_version: candidate
+ocp_tag: '4.20'
+openshift_release_image: "quay.io/openshift-release-dev/ocp-release:4.20.0-rc.3-multi"  # Optional: override with specific release image
 openshift_ci: false  # Set to true to avoid using CI_TOKEN (has side effects)
 
 # Virtual machine specifications
