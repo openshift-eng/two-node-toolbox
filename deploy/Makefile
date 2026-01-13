@@ -1,3 +1,9 @@
+# Multi-deployment support: specify DEPLOYMENT_ID to manage multiple environments
+# Examples: make deploy DEPLOYMENT_ID=dev1
+#           make ssh DEPLOYMENT_ID=dev2
+DEPLOYMENT_ID ?= ${USER}-dev
+export DEPLOYMENT_ID
+
 create:
 	@./aws-hypervisor/scripts/create.sh
 
@@ -60,8 +66,33 @@ patch-nodes:
 get-tnf-logs:
 	@./openshift-clusters/scripts/get-tnf-logs.sh
 
+list-deployments:
+	@echo "Listing all deployments:"
+	@for dir in aws-hypervisor/instance-data-*; do \
+		if [ -d "$$dir" ]; then \
+			deployment=$$(basename $$dir | sed 's/instance-data-//'); \
+			echo "  - $$deployment"; \
+			if [ -f "$$dir/aws-instance-id" ]; then \
+				instance_id=$$(cat $$dir/aws-instance-id); \
+				echo "    Instance ID: $$instance_id"; \
+			fi; \
+			if [ -f "$$dir/public_address" ]; then \
+				ip=$$(cat $$dir/public_address); \
+				echo "    Public IP: $$ip"; \
+			fi; \
+		fi; \
+	done
+
 help:
 	@echo "Available commands:"
+	@echo ""
+	@echo "Multi-Deployment Support:"
+	@echo "  Use DEPLOYMENT_ID parameter to manage multiple parallel deployments"
+	@echo "  Example: make deploy DEPLOYMENT_ID=dev1"
+	@echo "           make ssh DEPLOYMENT_ID=dev1"
+	@echo "  Default: DEPLOYMENT_ID=${USER}-dev"
+	@echo ""
+	@echo "  list-deployments     - List all existing deployments with their details"
 	@echo ""
 	@echo "Instance Lifecycle Management:"
 	@echo "  deploy               - Create, initialize, and update inventory for new EC2 instance"

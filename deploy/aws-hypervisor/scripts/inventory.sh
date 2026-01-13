@@ -8,10 +8,14 @@ set -o nounset
 set -o errexit
 set -o pipefail
 
-# Paths
-INVENTORY_DIR="${SCRIPT_DIR}/../../openshift-clusters"
+# Paths - use deployment-specific directory
+INVENTORY_BASE_DIR="${SCRIPT_DIR}/../../openshift-clusters"
+INVENTORY_DIR="${INVENTORY_BASE_DIR}/deployments/${DEPLOYMENT_ID}"
 INVENTORY_FILE="${INVENTORY_DIR}/inventory.ini"
-INVENTORY_TEMPLATE="${INVENTORY_DIR}/inventory.ini.sample"
+INVENTORY_TEMPLATE="${INVENTORY_BASE_DIR}/inventory.ini.sample"
+
+# Create deployment-specific directory if it doesn't exist
+mkdir -p "${INVENTORY_DIR}"
 
 # Check if instance data exists
 if [[ ! -f "${SCRIPT_DIR}/../${SHARED_DIR}/public_address" ]]; then
@@ -28,9 +32,10 @@ fi
 PUBLIC_IP="$(< "${SCRIPT_DIR}/../${SHARED_DIR}/public_address" tr -d '\n')"
 SSH_USER="$(< "${SCRIPT_DIR}/../${SHARED_DIR}/ssh_user" tr -d '\n')"
 
-echo "Updating inventory with:"
+echo "Updating inventory for deployment '${DEPLOYMENT_ID}' with:"
 echo "  User: ${SSH_USER}"
 echo "  IP:   ${PUBLIC_IP}"
+echo "  Inventory: ${INVENTORY_FILE}"
 
 # Function to update inventory file using Python ConfigParser
 function update_config() {

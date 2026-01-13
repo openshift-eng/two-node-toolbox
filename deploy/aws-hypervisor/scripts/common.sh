@@ -4,8 +4,10 @@ SCRIPT_DIR=$(dirname "$0")
 source "${SCRIPT_DIR}/../instance.env"
 
 # Set defaults
-export STACK_NAME="${STACK_NAME:-${USER}-dev}"
-export SHARED_DIR="${SHARED_DIR:-instance-data}"
+# Support multi-deployment via DEPLOYMENT_ID
+export DEPLOYMENT_ID="${DEPLOYMENT_ID:-${USER}-dev}"
+export STACK_NAME="${STACK_NAME:-${DEPLOYMENT_ID}}"
+export SHARED_DIR="${SHARED_DIR:-instance-data-${DEPLOYMENT_ID}}"
 export RHEL_HOST_ARCHITECTURE="${RHEL_HOST_ARCHITECTURE:-x86_64}"
 export EC2_INSTANCE_TYPE="${EC2_INSTANCE_TYPE:-c5n.metal}"
 export RHEL_VERSION="${RHEL_VERSION:-9.6}"

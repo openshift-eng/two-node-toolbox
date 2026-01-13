@@ -1,11 +1,14 @@
 ---
 # Default variables for proxy-setup role
 
+# Deployment identifier for multi-deployment support
+deployment_id: "{{ lookup('env', 'DEPLOYMENT_ID') | default(lookup('env', 'USER') + '-dev', true) }}"
+
 # Proxy configuration
 proxy_port: 8213
 
-# Container configuration
-proxy_container_name: external-squid
+# Container configuration - deployment-specific to avoid conflicts
+proxy_container_name: "external-squid-{{ deployment_id }}"
 proxy_image: quay.io/openshifttest/squid-proxy:multiarch
 
 # Network configuration

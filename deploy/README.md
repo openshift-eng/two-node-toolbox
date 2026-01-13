@@ -59,6 +59,65 @@ $ make deploy
 
 This will create the instance, initialize it, and update the inventory in one command, placing you in a login shell for the EC2 instance.
 
+### Multi-Deployment Support
+
+The toolbox supports managing multiple parallel deployments, useful for QE testing and comparison scenarios (e.g., testing different RHEL versions or cluster topologies simultaneously).
+
+#### Creating Multiple Deployments
+
+Specify a `DEPLOYMENT_ID` parameter to create and manage separate deployments:
+
+```bash
+# Create first deployment
+$ make deploy DEPLOYMENT_ID=dev1
+
+# Create second deployment
+$ make deploy DEPLOYMENT_ID=dev2
+
+# List all deployments
+$ make list-deployments
+```
+
+#### Managing Specific Deployments
+
+All commands accept the `DEPLOYMENT_ID` parameter:
+
+```bash
+# SSH into specific deployment
+$ make ssh DEPLOYMENT_ID=dev1
+
+# Deploy cluster to specific deployment
+$ make arbiter-ipi DEPLOYMENT_ID=dev1
+$ make fencing-ipi DEPLOYMENT_ID=dev2
+
+# Destroy specific deployment
+$ make destroy DEPLOYMENT_ID=dev1
+```
+
+#### Accessing Cluster Credentials
+
+Each deployment has its own directory with cluster credentials:
+
+```bash
+# Access first deployment's cluster
+$ source openshift-clusters/deployments/dev1/proxy.env
+$ export KUBECONFIG=openshift-clusters/deployments/dev1/kubeconfig
+$ oc get nodes
+
+# Switch to second deployment's cluster
+$ source openshift-clusters/deployments/dev2/proxy.env
+$ export KUBECONFIG=openshift-clusters/deployments/dev2/kubeconfig
+$ oc get nodes
+```
+
+#### Important Notes
+
+- Each deployment creates a separate EC2 instance (separate hypervisors)
+- Default DEPLOYMENT_ID: `${USER}-dev` (maintains backward compatibility)
+- State stored in `aws-hypervisor/instance-data-${DEPLOYMENT_ID}/`
+- Cluster configs stored in `openshift-clusters/deployments/${DEPLOYMENT_ID}/`
+- Proxy containers are deployment-specific: `external-squid-${DEPLOYMENT_ID}`
+
 ### Recommended Instance Reuse Workflow
 
 For quickly reusing an existing instance with a fresh cluster deployment:

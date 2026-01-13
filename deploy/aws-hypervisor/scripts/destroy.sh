@@ -4,6 +4,8 @@ SCRIPT_DIR=$(dirname "$0")
 # shellcheck source=/dev/null
 source "${SCRIPT_DIR}/common.sh"
 
+msg_info "Destroying deployment: ${DEPLOYMENT_ID}"
+
 # Check if instance data directory exists and has the required files
 instance_data_dir="${SCRIPT_DIR}/../${SHARED_DIR}"
 public_address_file="${instance_data_dir}/public_address"

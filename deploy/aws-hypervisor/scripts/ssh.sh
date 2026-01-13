@@ -3,6 +3,8 @@ SCRIPT_DIR=$(dirname "$0")
 # shellcheck source=/dev/null
 source "${SCRIPT_DIR}/common.sh"
 
+msg_info "Connecting to deployment: ${DEPLOYMENT_ID}"
+
 instance_ip="$(cat "${SCRIPT_DIR}/../${SHARED_DIR}/ssh_user")@$(cat "${SCRIPT_DIR}/../${SHARED_DIR}/public_address")"
 
 # Use the private key corresponding to the configured public key

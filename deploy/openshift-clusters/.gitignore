@@ -5,6 +5,9 @@ kubeadmin-password
 *.pyc
 *.pyo
 
+# Deployment-specific directories (multi-deployment support)
+deployments/
+
 # Local variable override files
 vars/*.local
 vars/*-local.yml

@@ -8,6 +8,8 @@ set -o nounset
 set -o errexit
 set -o pipefail
 
+msg_info "Starting deployment: ${DEPLOYMENT_ID}"
+
 # Check if the instance exists and get its ID
 if [[ ! -f "${SCRIPT_DIR}/../${SHARED_DIR}/aws-instance-id" ]]; then
     echo "Error: No instance found. Please run 'make deploy' first."

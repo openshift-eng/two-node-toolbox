@@ -34,5 +34,5 @@
       else
           echo "✓ KUBECONFIG file found"
       fi
-    dest: "./proxy.env"
+    dest: "./deployments/{{ deployment_id }}/proxy.env"
   delegate_to: localhost 

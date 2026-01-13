@@ -1,3 +1,4 @@
 instance.env
 instance-data
+instance-data-*
 pull_secret.json

@@ -9,19 +9,28 @@ set -o nounset
 set -o errexit
 set -o pipefail
 
+# Get deployment ID from environment or use default
+DEPLOYMENT_ID="${DEPLOYMENT_ID:-${USER}-dev}"
+INSTANCE_DATA_DIR="${DEPLOY_DIR}/aws-hypervisor/instance-data-${DEPLOYMENT_ID}"
+DEPLOYMENT_DIR="${DEPLOY_DIR}/openshift-clusters/deployments/${DEPLOYMENT_ID}"
+INVENTORY_FILE="${DEPLOYMENT_DIR}/inventory.ini"
+
+echo "Deployment ID: ${DEPLOYMENT_ID}"
+
 # Check if instance data exists
-if [[ ! -f "${DEPLOY_DIR}/aws-hypervisor/instance-data/aws-instance-id" ]]; then
-    echo "Error: No instance found. Please run 'make deploy' first."
+if [[ ! -f "${INSTANCE_DATA_DIR}/aws-instance-id" ]]; then
+    echo "Error: No instance found for deployment '${DEPLOYMENT_ID}'."
+    echo "Please run 'make deploy DEPLOYMENT_ID=${DEPLOYMENT_ID}' first."
     exit 1
 fi
 
-echo "Deploying fencing IPI cluster..."
+echo "Deploying fencing IPI cluster for deployment '${DEPLOYMENT_ID}'..."
 
-# Check if inventory.ini exists in the openshift-clusters directory
-if [[ ! -f "${DEPLOY_DIR}/openshift-clusters/inventory.ini" ]]; then
-    echo "Error: inventory.ini not found in ${DEPLOY_DIR}/openshift-clusters/"
+# Check if inventory.ini exists
+if [[ ! -f "${INVENTORY_FILE}" ]]; then
+    echo "Error: inventory.ini not found at ${INVENTORY_FILE}"
     echo "Please ensure the inventory file is properly configured."
-    echo "You can run 'make inventory' to update it with current instance information."
+    echo "You can run 'make inventory DEPLOYMENT_ID=${DEPLOYMENT_ID}' to update it."
     exit 1
 fi
 
@@ -30,15 +39,14 @@ echo "Running Ansible setup playbook with fencing topology in non-interactive mo
 cd "${DEPLOY_DIR}/openshift-clusters"
 
 # Run the setup playbook with fencing topology and non-interactive mode
-if ansible-playbook setup.yml -e "topology=fencing" -e "interactive_mode=false" -i inventory.ini; 
+if ansible-playbook setup.yml -e "topology=fencing" -e "interactive_mode=false" -i "${INVENTORY_FILE}"; 
 then
     echo ""
     echo "✓ OpenShift fencing cluster deployment completed successfully!"
     echo ""
     echo "Next steps:"
-    echo "1. Source the proxy environment from anywhere:"
-    echo "   source ${DEPLOY_DIR}/openshift-clusters/proxy.env"
-    echo "   (or from openshift-clusters directory: source proxy.env)"
+    echo "1. Source the proxy environment for deployment '${DEPLOYMENT_ID}':"
+    echo "   source ${DEPLOYMENT_DIR}/proxy.env"
     echo "2. Verify cluster access: oc get nodes"
     echo "3. Access the cluster console if needed"
 else

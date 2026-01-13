@@ -12,16 +12,28 @@ Two-Node Toolbox (TNF) is a comprehensive deployment automation framework for Op
 ```bash
 # From the deploy/ directory:
 
-# Deploy AWS hypervisor and cluster in one command
-make deploy arbiter-ipi   # Deploy arbiter topology cluster 
+# Single deployment (default)
+make deploy arbiter-ipi   # Deploy arbiter topology cluster
 make deploy fencing-ipi   # Deploy fencing topology cluster
 
-# Instance lifecycle management
+# Multi-deployment support (create separate parallel deployments)
+# Specify DEPLOYMENT_ID to manage multiple environments
+make deploy DEPLOYMENT_ID=dev1 arbiter-ipi    # First deployment
+make deploy DEPLOYMENT_ID=dev2 fencing-ipi    # Second deployment
+
+# List all deployments
+make list-deployments
+
+# Instance lifecycle management (use DEPLOYMENT_ID for specific deployment)
 make create              # Create new EC2 instance
 make init               # Initialize deployed instance
 make start              # Start stopped EC2 instance
 make stop               # Stop running EC2 instance
 make destroy            # Destroy EC2 instance and resources
+
+# Example: Manage specific deployment
+make ssh DEPLOYMENT_ID=dev1              # SSH into dev1 deployment
+make destroy DEPLOYMENT_ID=dev2          # Destroy dev2 deployment
 
 # Cluster operations
 make redeploy-cluster   # Redeploy OpenShift cluster using dev-scripts
@@ -35,6 +47,44 @@ make patch-nodes        # Build resource-agents RPM and patch cluster nodes
 make ssh               # SSH into EC2 instance
 make info              # Display instance information
 make inventory         # Update inventory.ini with current instance IP
+```
+
+### Multi-Deployment Workflows
+
+The toolbox supports managing multiple parallel deployments, useful for QE testing and comparison scenarios.
+
+```bash
+# Example: Compare RHEL 9.6 vs RHEL 10
+# Edit instance.env.template for each deployment to set RHEL_VERSION
+
+# Create first deployment (RHEL 9.6)
+DEPLOYMENT_ID=rhel96 make deploy fencing-ipi
+
+# Create second deployment (RHEL 10)
+DEPLOYMENT_ID=rhel10 make deploy fencing-ipi
+
+# Access specific deployment
+source deploy/openshift-clusters/deployments/rhel96/proxy.env
+export KUBECONFIG=deploy/openshift-clusters/deployments/rhel96/kubeconfig
+oc get nodes
+
+# Switch to other deployment
+source deploy/openshift-clusters/deployments/rhel10/proxy.env
+export KUBECONFIG=deploy/openshift-clusters/deployments/rhel10/kubeconfig
+oc get nodes
+
+# List all deployments
+make list-deployments
+
+# Cleanup specific deployment
+make destroy DEPLOYMENT_ID=rhel96
+```
+
+**Important Notes:**
+- Each deployment gets its own EC2 instance (separate hypervisors)
+- Deployment state stored in `instance-data-${DEPLOYMENT_ID}/`
+- Cluster configs stored in `deployments/${DEPLOYMENT_ID}/`
+- Default DEPLOYMENT_ID: `${USER}-dev`
 ```
 
 ### Ansible Deployment Methods

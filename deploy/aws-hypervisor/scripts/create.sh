@@ -11,6 +11,10 @@ set -o pipefail
 #Save stacks events
 trap 'save_stack_events' EXIT TERM INT
 
+msg_info "Creating deployment: ${DEPLOYMENT_ID}"
+msg_info "Stack name: ${STACK_NAME}"
+msg_info "State directory: ${SHARED_DIR}"
+
 mkdir -p "${SCRIPT_DIR}/../${SHARED_DIR}"
 
 cf_tpl_file="${SCRIPT_DIR}/../${SHARED_DIR}/${STACK_NAME}-cf-tpl.yaml"
