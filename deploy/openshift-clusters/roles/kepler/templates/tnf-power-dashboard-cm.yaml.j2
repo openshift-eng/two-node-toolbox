@@ -1,0 +1,560 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tnf-power-dashboard
+  namespace: {{ grafana_namespace }}
+data:
+  tnf-power.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 0,
+            "datasource": "Prometheus",
+            "enable": true,
+            "expr": "changes(up{job=\"kepler-exporter\"}[2m]) > 0",
+            "hide": false,
+            "iconColor": "red",
+            "name": "Node State Change",
+            "step": "60s"
+          },
+          {
+            "builtIn": 0,
+            "datasource": "Prometheus",
+            "enable": true,
+            "expr": "up{job=\"kepler-exporter\"} == 0",
+            "hide": false,
+            "iconColor": "dark-red",
+            "name": "Node Down",
+            "step": "60s"
+          }
+        ]
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "decimals": 2,
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "yellow", "value": 100},
+                  {"color": "red", "value": 200}
+                ]
+              },
+              "unit": "watt"
+            }
+          },
+          "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+          "id": 1,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(kepler_node_cpu_joules_total[5m])) * 60",
+              "legendFormat": "Total Power",
+              "refId": "A"
+            }
+          ],
+          "title": "Total Cluster Power",
+          "type": "stat"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "decimals": 2,
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "watt"
+            }
+          },
+          "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
+          "id": 2,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "horizontal",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "label_replace(sum by (instance) (rate(kepler_node_cpu_joules_total[5m])) * 60, \"node\", \"$1\", \"instance\", \"(.*):[0-9]+\")",
+              "legendFormat": "{{ '{{node}}' }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Power by Node",
+          "type": "stat"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "decimals": 2,
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]},
+              "unit": "watt"
+            }
+          },
+          "gridPos": {"h": 6, "w": 4, "x": 12, "y": 0},
+          "id": 3,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "sum(kepler_container_cpu_watts{container_name=~\".*apiserver.*|.*machine-config.*|master-.*|.*etcd.*\"})",
+              "legendFormat": "HA Overhead",
+              "refId": "A"
+            }
+          ],
+          "title": "HA Components Power",
+          "description": "Power consumed by etcd, MCO, and kube-apiserver (core HA components). On VMs without RAPL, values may be near-zero.",
+          "type": "stat"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "decimals": 2,
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 10},
+                {"color": "red", "value": 50}
+              ]},
+              "unit": "currencyUSD"
+            }
+          },
+          "gridPos": {"h": 6, "w": 4, "x": 16, "y": 0},
+          "id": 8,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "sum(kepler_node_cpu_watts) / 1000 * 24 * 30 * $cost_per_kwh",
+              "legendFormat": "Monthly Cost",
+              "refId": "A"
+            }
+          ],
+          "title": "Est. Monthly Cost",
+          "description": "Estimated monthly electricity cost based on current power draw. Note: On VMs without RAPL, Kepler uses estimation which may show near-zero values.",
+          "type": "stat"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "short"
+            }
+          },
+          "gridPos": {"h": 6, "w": 4, "x": 20, "y": 0},
+          "id": 4,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "count(up{job=\"kepler-exporter\"} == 1)",
+              "legendFormat": "Nodes Up",
+              "refId": "A"
+            }
+          ],
+          "title": "Nodes Online",
+          "description": "Number of nodes currently being monitored (2 = healthy TNF, 1 = degraded mode)",
+          "type": "stat"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 20,
+                "gradientMode": "none",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "showPoints": "auto",
+                "spanNulls": false,
+                "stacking": {"group": "A", "mode": "none"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "decimals": 2,
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "watt"
+            }
+          },
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 6},
+          "id": 5,
+          "options": {
+            "legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(kepler_node_cpu_joules_total[5m])) * 60",
+              "legendFormat": "Total Cluster",
+              "refId": "A"
+            },
+            {
+              "expr": "label_replace(sum by (instance) (rate(kepler_node_cpu_joules_total[5m])) * 60, \"node\", \"$1\", \"instance\", \"(.*):[0-9]+\")",
+              "legendFormat": "{{ '{{node}}' }}",
+              "refId": "B"
+            }
+          ],
+          "title": "Power Over Time",
+          "type": "timeseries"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisGridShow": true,
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "fillOpacity": 80,
+                "gradientMode": "none",
+                "lineWidth": 1,
+                "scaleDistribution": {"type": "linear"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "decimals": 2,
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "watt"
+            }
+          },
+          "gridPos": {"h": 10, "w": 12, "x": 0, "y": 14},
+          "id": 6,
+          "options": {
+            "displayMode": "gradient",
+            "minVizHeight": 10,
+            "minVizWidth": 0,
+            "orientation": "horizontal",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "showUnfilled": true,
+            "valueMode": "color"
+          },
+          "targets": [
+            {
+              "expr": "label_replace(label_replace(topk(10, sum by (container_name) (rate(kepler_container_cpu_joules_total{container_name!~\".*apiserver.*|.*machine-config.*|master-.*|.*etcd.*|.*controller-manager.*\"}[5m])) * 60), \"short_name\", \"$1\", \"container_name\", \"(.*)\"), \"short_name\", \"$1\", \"container_name\", \"(.+)-[a-z0-9]+-[a-z0-9]+$\")",
+              "legendFormat": "{{ '{{short_name}}' }}",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "title": "Top 10 Workloads by Power",
+          "description": "Shows the top 10 non-control-plane workloads by power consumption. Excludes HA components (apiserver, etcd, MCO, controller-manager) which are shown in the Control Plane panel.",
+          "type": "bargauge"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisGridShow": true,
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "fillOpacity": 80,
+                "gradientMode": "none",
+                "lineWidth": 1,
+                "scaleDistribution": {"type": "linear"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "decimals": 2,
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "watt"
+            }
+          },
+          "gridPos": {"h": 10, "w": 12, "x": 12, "y": 14},
+          "id": 7,
+          "options": {
+            "displayMode": "gradient",
+            "minVizHeight": 10,
+            "minVizWidth": 0,
+            "orientation": "horizontal",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "showUnfilled": true,
+            "valueMode": "color"
+          },
+          "targets": [
+            {
+              "expr": "label_replace(label_replace(topk(10, sum by (container_name) (rate(kepler_container_cpu_joules_total{container_name=~\".*apiserver.*|.*machine-config.*|master-.*|.*etcd.*|.*controller-manager.*\"}[5m])) * 60), \"short_name\", \"$1\", \"container_name\", \"(.*)\"), \"short_name\", \"$1\", \"container_name\", \"(.+)-[a-z0-9]+-[a-z0-9]+$\")",
+              "legendFormat": "{{ '{{short_name}}' }}",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "title": "TNF Control Plane Power Breakdown",
+          "description": "Power consumption of TNF high-availability components: kube-apiserver, openshift-apiserver, etcd, machine-config-operator, and controller-manager. These are critical for cluster HA operation.",
+          "type": "bargauge"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "decimals": 1,
+              "mappings": [
+                {"options": {"from": -5, "to": 5, "result": {"color": "green", "text": "Balanced"}}, "type": "range"},
+                {"options": {"from": 5, "to": 20, "result": {"color": "yellow", "text": "Slight Imbalance"}}, "type": "range"},
+                {"options": {"from": -20, "to": -5, "result": {"color": "yellow", "text": "Slight Imbalance"}}, "type": "range"},
+                {"options": {"from": 20, "to": 100, "result": {"color": "red", "text": "Imbalanced"}}, "type": "range"},
+                {"options": {"from": -100, "to": -20, "result": {"color": "red", "text": "Imbalanced"}}, "type": "range"}
+              ],
+              "thresholds": {"mode": "absolute", "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 5},
+                {"color": "red", "value": 20}
+              ]},
+              "unit": "percent"
+            }
+          },
+          "gridPos": {"h": 6, "w": 8, "x": 0, "y": 24},
+          "id": 9,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "value_and_name"
+          },
+          "targets": [
+            {
+              "expr": "((max(sum by (instance) (rate(kepler_node_cpu_joules_total[5m]))) - min(sum by (instance) (rate(kepler_node_cpu_joules_total[5m])))) / (avg(sum by (instance) (rate(kepler_node_cpu_joules_total[5m]))) + 0.0001)) * 100",
+              "legendFormat": "Node Imbalance",
+              "refId": "A"
+            }
+          ],
+          "title": "Node Power Balance",
+          "description": "Power imbalance between nodes. 0% = perfectly balanced. High values indicate one node is doing significantly more work. Important for TNF load distribution.",
+          "type": "stat"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "decimals": 2,
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 0.5},
+                {"color": "red", "value": 1}
+              ]},
+              "unit": "watt"
+            }
+          },
+          "gridPos": {"h": 6, "w": 8, "x": 8, "y": 24},
+          "id": 10,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(kepler_container_cpu_joules_total{container_name=~\".*etcd.*\"}[5m])) * 60",
+              "legendFormat": "etcd Power",
+              "refId": "A"
+            }
+          ],
+          "title": "etcd Power",
+          "description": "Power consumed by etcd - the critical distributed key-value store for TNF cluster state. High values may indicate heavy cluster activity or potential issues.",
+          "type": "stat"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "decimals": 1,
+              "mappings": [
+                {"options": {"from": -100, "to": -5, "result": {"color": "green", "text": "Decreasing"}}, "type": "range"},
+                {"options": {"from": -5, "to": 5, "result": {"color": "blue", "text": "Stable"}}, "type": "range"},
+                {"options": {"from": 5, "to": 100, "result": {"color": "orange", "text": "Increasing"}}, "type": "range"}
+              ],
+              "thresholds": {"mode": "absolute", "steps": [
+                {"color": "green", "value": null},
+                {"color": "blue", "value": -5},
+                {"color": "orange", "value": 5}
+              ]},
+              "unit": "percent"
+            }
+          },
+          "gridPos": {"h": 6, "w": 8, "x": 16, "y": 24},
+          "id": 11,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "value_and_name"
+          },
+          "targets": [
+            {
+              "expr": "((sum(rate(kepler_node_cpu_joules_total[5m])) - sum(rate(kepler_node_cpu_joules_total[30m]))) / (sum(rate(kepler_node_cpu_joules_total[30m])) + 0.0001)) * 100",
+              "legendFormat": "Trend",
+              "refId": "A"
+            }
+          ],
+          "title": "Power Trend (1h)",
+          "description": "Power consumption trend comparing recent 5 minutes vs last 30 minutes. Positive = increasing power usage, Negative = decreasing.",
+          "type": "stat"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "Power (W)",
+                "axisPlacement": "left",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {"group": "A", "mode": "none"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "decimals": 2,
+              "mappings": [],
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+              "unit": "watt"
+            },
+            "overrides": [
+              {
+                "matcher": {"id": "byName", "options": "CPU Usage"},
+                "properties": [
+                  {"id": "custom.axisPlacement", "value": "right"},
+                  {"id": "custom.axisLabel", "value": "CPU (cores)"},
+                  {"id": "unit", "value": "short"},
+                  {"id": "color", "value": {"fixedColor": "orange", "mode": "fixed"}}
+                ]
+              }
+            ]
+          },
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 30},
+          "id": 13,
+          "options": {
+            "legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(kepler_node_cpu_joules_total[5m])) * 60",
+              "legendFormat": "Power",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(rate(node_cpu_seconds_total{mode!=\"idle\"}[5m]))",
+              "legendFormat": "CPU Usage",
+              "refId": "B"
+            }
+          ],
+          "title": "CPU vs Power Correlation",
+          "description": "Shows the relationship between CPU usage and power consumption. Helps understand power efficiency - ideally they should correlate closely.",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 38,
+      "tags": ["kepler", "power", "tnf", "two-node"],
+      "templating": {
+        "list": [
+          {
+            "current": {"selected": false, "text": "0.12", "value": "0.12"},
+            "description": "Electricity cost per kWh in your currency (e.g., USD, EUR)",
+            "hide": 0,
+            "label": "Cost per kWh ($)",
+            "name": "cost_per_kwh",
+            "options": [
+              {"selected": false, "text": "0.08", "value": "0.08"},
+              {"selected": true, "text": "0.12", "value": "0.12"},
+              {"selected": false, "text": "0.15", "value": "0.15"},
+              {"selected": false, "text": "0.20", "value": "0.20"},
+              {"selected": false, "text": "0.25", "value": "0.25"},
+              {"selected": false, "text": "0.30", "value": "0.30"}
+            ],
+            "query": "0.08,0.12,0.15,0.20,0.25,0.30",
+            "skipUrlSync": false,
+            "type": "custom"
+          }
+        ]
+      },
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "TNF Power Monitoring",
+      "uid": "tnf-power-monitoring",
+      "version": 1
+    }

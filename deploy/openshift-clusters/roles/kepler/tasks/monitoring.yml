@@ -1,0 +1,94 @@
+---
+# Configure OpenShift monitoring integration for Kepler
+#
+# IMPORTANT: ServiceMonitor must be in the KEPLER namespace, NOT openshift-monitoring.
+# User workload monitoring only discovers ServiceMonitors in the same namespace
+# as the workload. Placing it in openshift-monitoring will NOT work.
+#
+# Data flow:
+#   Kepler Service (kepler ns) <- ServiceMonitor (kepler ns) <- Prometheus (user-workload-monitoring)
+
+- name: Enable user workload monitoring
+  ansible.builtin.shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: cluster-monitoring-config
+      namespace: openshift-monitoring
+    data:
+      config.yaml: |
+        enableUserWorkload: true
+    EOF
+  environment:
+    KUBECONFIG: "{{ kepler_kubeconfig }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+    NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+  register: uwm_result
+  changed_when: "'created' in uwm_result.stdout or 'configured' in uwm_result.stdout"
+  when: enable_user_workload_monitoring | bool
+
+- name: Wait for user workload monitoring to be ready
+  ansible.builtin.shell: |
+    for i in $(seq 1 30); do
+      READY=$(oc get deployment prometheus-operator -n openshift-user-workload-monitoring -o jsonpath='{.status.availableReplicas}' 2>/dev/null || echo "0")
+      if [ "$READY" -ge 1 ]; then
+        echo "READY"
+        exit 0
+      fi
+      sleep 10
+    done
+    echo "TIMEOUT"
+    exit 1
+  environment:
+    KUBECONFIG: "{{ kepler_kubeconfig }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+    NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+  register: uwm_ready
+  changed_when: false
+  failed_when: "'TIMEOUT' in uwm_ready.stdout"
+  when: enable_user_workload_monitoring | bool
+
+- name: Create ServiceMonitor for Kepler metrics
+  ansible.builtin.shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      name: kepler
+      namespace: {{ kepler_namespace }}
+      labels:
+        app: kepler
+    spec:
+      endpoints:
+        - interval: {{ kepler_scrape_interval }}
+          port: http
+          scheme: http
+          path: /metrics
+      namespaceSelector:
+        matchNames:
+          - {{ kepler_namespace }}
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: kepler-exporter
+    EOF
+  environment:
+    KUBECONFIG: "{{ kepler_kubeconfig }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+    NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+  register: sm_result
+  changed_when: "'created' in sm_result.stdout or 'configured' in sm_result.stdout"
+
+- name: Verify Kepler metrics are being scraped
+  ansible.builtin.debug:
+    msg: |
+      Kepler ServiceMonitor created. Metrics will be available at:
+      - OpenShift Console: Observe -> Metrics
+      - Query: kepler_build_info
+
+      To verify metrics are being scraped:
+        oc -n openshift-user-workload-monitoring exec -c prometheus prometheus-user-workload-0 -- \
+          curl -s 'http://localhost:9090/api/v1/query?query=up{job="kepler-exporter"}' | jq
