@@ -71,34 +71,62 @@ fi
 
 ### Step 3: Query Power Metrics
 
-Run these queries against the user workload Prometheus:
+Run these queries against the user workload Prometheus.
+
+**Important label notes for Kepler v0.11.x:**
+- Container metrics (`kepler_container_cpu_watts`) have `namespace: kepler` (the exporter's own namespace), NOT the workload namespace
+- The `container_name` label holds the pod/process name discovered by Kepler
+- The `instance` label identifies which node reported the metric (e.g., `192.168.111.20:9188`)
+- To find control plane components, use `container_name` regex matching against known pod prefixes
 
 ```bash
 # Total cluster power (watts) - sum of node CPU power
 oc exec -n openshift-user-workload-monitoring prometheus-user-workload-0 -c prometheus -- \
-  curl -s 'http://localhost:9090/api/v1/query?query=sum(kepler_node_cpu_watts)' | \
+  curl -s 'http://localhost:9090/api/v1/query?query=sum(kepler_node_cpu_watts)' 2>/dev/null | \
   jq -r '.data.result[0].value[1] // "0"'
 
 # Power by node (using node CPU watts)
 oc exec -n openshift-user-workload-monitoring prometheus-user-workload-0 -c prometheus -- \
-  curl -s 'http://localhost:9090/api/v1/query?query=sum%20by%20(instance)(kepler_node_cpu_watts)' | \
+  curl -s 'http://localhost:9090/api/v1/query?query=sum%20by%20(instance)(kepler_node_cpu_watts)' 2>/dev/null | \
   jq -r '.data.result[] | "\(.metric.instance): \(.value[1])W"'
 
-# Top 10 containers by power
+# Top 10 containers by power (container_name = pod/process name, instance = node)
 oc exec -n openshift-user-workload-monitoring prometheus-user-workload-0 -c prometheus -- \
-  curl -s 'http://localhost:9090/api/v1/query?query=topk(10,kepler_container_cpu_watts)' | \
-  jq -r '.data.result[] | "\(.metric.container_name): \(.value[1])W"'
+  curl -s 'http://localhost:9090/api/v1/query?query=topk(10,sum%20by%20(container_name,%20instance)(kepler_container_cpu_watts))' 2>/dev/null | \
+  jq -r '.data.result[] | "\(.metric.container_name) [\(.metric.instance)]: \(.value[1])W"'
+
+# Control plane component power (matched by known pod name prefixes)
+# etcd
+oc exec -n openshift-user-workload-monitoring prometheus-user-workload-0 -c prometheus -- \
+  curl -s 'http://localhost:9090/api/v1/query?query=sum(kepler_container_cpu_watts%7Bcontainer_name%3D~%22etcd.*%22%7D)' 2>/dev/null | \
+  jq -r '"etcd: \(.data.result[0].value[1] // "0")W"'
+
+# kube-apiserver
+oc exec -n openshift-user-workload-monitoring prometheus-user-workload-0 -c prometheus -- \
+  curl -s 'http://localhost:9090/api/v1/query?query=sum(kepler_container_cpu_watts%7Bcontainer_name%3D~%22kube-apiserver.*%22%7D)' 2>/dev/null | \
+  jq -r '"kube-apiserver: \(.data.result[0].value[1] // "0")W"'
+
+# kube-controller-manager
+oc exec -n openshift-user-workload-monitoring prometheus-user-workload-0 -c prometheus -- \
+  curl -s 'http://localhost:9090/api/v1/query?query=sum(kepler_container_cpu_watts%7Bcontainer_name%3D~%22kube-controller-manager.*%22%7D)' 2>/dev/null | \
+  jq -r '"kube-controller-manager: \(.data.result[0].value[1] // "0")W"'
+
+# kube-scheduler
+oc exec -n openshift-user-workload-monitoring prometheus-user-workload-0 -c prometheus -- \
+  curl -s 'http://localhost:9090/api/v1/query?query=sum(kepler_container_cpu_watts%7Bcontainer_name%3D~%22kube-scheduler.*%22%7D)' 2>/dev/null | \
+  jq -r '"kube-scheduler: \(.data.result[0].value[1] // "0")W"'
 
 # Power over time using joules (rate gives watts)
 oc exec -n openshift-user-workload-monitoring prometheus-user-workload-0 -c prometheus -- \
-  curl -s 'http://localhost:9090/api/v1/query?query=sum(rate(kepler_node_cpu_joules_total[5m]))' | \
+  curl -s 'http://localhost:9090/api/v1/query?query=sum(rate(kepler_node_cpu_joules_total%5B5m%5D))' 2>/dev/null | \
   jq -r '.data.result[0].value[1] // "0"'
 ```
 
 **Note on metrics**:
-- `kepler_node_cpu_watts` - Instantaneous CPU power per node
-- `kepler_container_cpu_watts` - Instantaneous CPU power per container
-- `kepler_node_cpu_joules_total` - Cumulative energy (use rate() for watts)
+- `kepler_node_cpu_watts` - Instantaneous CPU power per node (labels: `instance`, `zone`)
+- `kepler_container_cpu_watts` - Instantaneous CPU power per container (labels: `container_name`, `instance`)
+- `kepler_node_cpu_joules_total` - Cumulative energy (use `rate()` for watts)
+- All container metrics report under `namespace: kepler` — use `container_name` regex to identify workloads
 
 In **estimation mode** (VMs without RAPL), values will be very small (microwatts to milliwatts) because they're based on CPU activity models, not real power measurements. On **bare metal with RAPL**, expect realistic values (tens to hundreds of watts).
 
@@ -137,16 +165,17 @@ Present the results in this format:
 ### TNF Control Plane Overhead
 | Component | Power (W) |
 |-----------|-----------|
-| openshift-etcd | XX.X |
-| openshift-kube-apiserver | XX.X |
-| openshift-machine-config-operator | XX.X |
+| etcd | XX.X |
+| kube-apiserver | XX.X |
+| kube-controller-manager | XX.X |
+| kube-scheduler | XX.X |
 
-### Top Namespaces by Power
-| Namespace | Power (W) |
-|-----------|-----------|
-| namespace-1 | XX.X |
-| namespace-2 | XX.X |
-| ... | ... |
+### Top Containers by Power
+| Container (Pod) | Node | Power (W) |
+|-----------------|------|-----------|
+| container-1 | 192.168.111.20 | XX.X |
+| container-2 | 192.168.111.21 | XX.X |
+| ... | ... | ... |
 
 ---
 *Note: [If ESTIMATED mode] Power values are ML-based estimates.
