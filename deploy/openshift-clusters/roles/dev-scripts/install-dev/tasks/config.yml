@@ -31,19 +31,14 @@
     - "'registry.ci.openshift.org' in config_content"
     - "'registry.ci.openshift.org' not in (pull_secret_content.auths | default({}) | list)"
 
-- name: Extract CI_TOKEN matches from config file
+- name: Extract CI_TOKEN from config file
   set_fact:
-    ci_token_matches: "{{ config_content | regex_search('(?m)^export CI_TOKEN=\"([^\"]+)\"', '\\1') | default([]) }}"
-  no_log: true
-
-- name: Set CI_TOKEN value
-  set_fact:
-    ci_token: "{{ ci_token_matches | first | default('') }}"
+    ci_token: "{{ config_content | regex_findall('(?m)^export CI_TOKEN=\"([^\"]+)\"') | first | default('', true) }}"
   no_log: true
 
 - name: Extract release image registry
   set_fact:
-    release_registry: "{{ config_content | regex_search('(?m)^export OPENSHIFT_RELEASE_IMAGE=\"?([^/\"]+)', '\\1') | default([]) | first | default('') }}"
+    release_registry: "{{ config_content | regex_findall('(?m)^export OPENSHIFT_RELEASE_IMAGE=\"?([^/\"]+)') | first | default('', true) }}"
   when: ci_token | length > 0
 
 - name: Validate CI token against release image registry
@@ -60,7 +55,7 @@
   no_log: true
   when:
     - ci_token | length > 0
-    - release_registry | default('') is search('ci\.openshift\.org')
+    - release_registry | default('') == 'registry.ci.openshift.org'
 
 - name: Fail fast if CI token is expired or invalid
   fail:
