@@ -31,6 +31,46 @@
     - "'registry.ci.openshift.org' in config_content"
     - "'registry.ci.openshift.org' not in (pull_secret_content.auths | default({}) | list)"
 
+- name: Extract CI_TOKEN matches from config file
+  set_fact:
+    ci_token_matches: "{{ config_content | regex_search('(?m)^export CI_TOKEN=\"([^\"]+)\"', '\\1') | default([]) }}"
+  no_log: true
+
+- name: Set CI_TOKEN value
+  set_fact:
+    ci_token: "{{ ci_token_matches | first | default('') }}"
+  no_log: true
+
+- name: Extract release image registry
+  set_fact:
+    release_registry: "{{ config_content | regex_search('(?m)^export OPENSHIFT_RELEASE_IMAGE=\"?([^/\"]+)', '\\1') | default([]) | first | default('') }}"
+  when: ci_token | length > 0
+
+- name: Validate CI token against release image registry
+  uri:
+    url: "https://{{ release_registry }}/v2/"
+    headers:
+      Authorization: "Bearer {{ ci_token }}"
+    validate_certs: true
+    status_code: [200]
+  delegate_to: localhost
+  become: false
+  register: ci_login_result
+  ignore_errors: true
+  no_log: true
+  when:
+    - ci_token | length > 0
+    - release_registry | default('') is search('ci\.openshift\.org')
+
+- name: Fail fast if CI token is expired or invalid
+  fail:
+    msg: >-
+      CI token is invalid or expired for {{ release_registry }}.
+      Update CI_TOKEN in {{ config_file[method] }} and retry.
+  when:
+    - ci_login_result is defined
+    - ci_login_result is failed
+
 - name: Copy pull secrets
   copy:
     dest: "{{dev_scripts_path}}/pull_secret.json"
