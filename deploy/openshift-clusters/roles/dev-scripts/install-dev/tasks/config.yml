@@ -44,11 +44,12 @@
     msg: >-
       Config file {{ config_file[method] }} has AGENT_E2E_TEST_SCENARIO="{{ config_scenario }}"
       (prefix {{ scenario_prefix }}) but the requested topology is "{{ topology }}"
-      which expects prefix "{{ expected_prefix[topology] }}".
+      which expects prefix "{{ expected_prefix[topology] | default('UNKNOWN') }}".
       This would deploy the wrong cluster type. Fix AGENT_E2E_TEST_SCENARIO in the config file.
   when:
     - method == "agent"
     - config_scenario | length > 0
+    - topology in expected_prefix
     - scenario_prefix != expected_prefix[topology]
 
 - name: Warn if using CI registry images without CI auth in pull secret
