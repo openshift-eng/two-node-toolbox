@@ -14,6 +14,8 @@ export BMC_DRIVER=redfish
 # If you want to avoid using the CI_TOKEN, uncomment this variable, but it has side effects.
 # You can read more on this here: https://github.com/openshift-metal3/dev-scripts/blob/3f070cfd36977381a186cadfb44887856d652bed/config_example.sh#L21
 # export OPENSHIFT_CI="true"
+# If deploying fencing-agent, set the test scenario to TNF_IPV4
+# export AGENT_E2E_TEST_SCENARIO="TNF_IPV4"
 
 export CI_TOKEN="sha256~<PASTE_YOUR_CI_TOKEN_HERE>"
 

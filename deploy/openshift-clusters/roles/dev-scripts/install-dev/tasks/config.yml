@@ -19,6 +19,38 @@
           Failed to parse pull-secret.json. Ensure the file contains valid JSON.
           You can validate it with: python3 -m json.tool pull-secret.json
 
+- name: Extract AGENT_E2E_TEST_SCENARIO from config file
+  set_fact:
+    config_scenario: "{{ config_content | regex_findall('(?m)^export AGENT_E2E_TEST_SCENARIO=\"([^\"]+)\"') | first | default('', true) }}"
+
+- name: Fail if agent method is used without AGENT_E2E_TEST_SCENARIO
+  fail:
+    msg: >-
+      Config file {{ config_file[method] }} does not set AGENT_E2E_TEST_SCENARIO,
+      which is required for the agent installation method. Add
+      AGENT_E2E_TEST_SCENARIO="TNF_IPV4" (fencing) or "TNA_IPV4" (arbiter) to
+      the config file.
+  when:
+    - method == "agent"
+    - config_scenario | length == 0
+
+- name: Validate config scenario matches requested topology
+  vars:
+    scenario_prefix: "{{ config_scenario.split('_') | first }}"
+    expected_prefix:
+      arbiter: "TNA"
+      fencing: "TNF"
+  fail:
+    msg: >-
+      Config file {{ config_file[method] }} has AGENT_E2E_TEST_SCENARIO="{{ config_scenario }}"
+      (prefix {{ scenario_prefix }}) but the requested topology is "{{ topology }}"
+      which expects prefix "{{ expected_prefix[topology] }}".
+      This would deploy the wrong cluster type. Fix AGENT_E2E_TEST_SCENARIO in the config file.
+  when:
+    - method == "agent"
+    - config_scenario | length > 0
+    - scenario_prefix != expected_prefix[topology]
+
 - name: Warn if using CI registry images without CI auth in pull secret
   fail:
     msg: >-
