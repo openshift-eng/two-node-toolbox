@@ -35,6 +35,14 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --threshold)
+            if [[ $# -lt 2 || "$2" == -* ]]; then
+                echo "Error: --threshold requires a numeric argument"
+                exit 1
+            fi
+            if ! [[ "$2" =~ ^[0-9]+$ ]]; then
+                echo "Error: --threshold value must be a positive integer, got '$2'"
+                exit 1
+            fi
             THRESHOLD_HOURS="$2"
             shift 2
             ;;
