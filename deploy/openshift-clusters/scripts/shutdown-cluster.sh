@@ -66,7 +66,7 @@ PROXY_ENV="${SCRIPT_DIR}/../proxy.env"
 
 if [[ -x "${REFRESH_CERTS_SCRIPT}" && -f "${PROXY_ENV}" ]]; then
     echo ""
-    echo "Refreshing certificates before shutdown..."
+    echo "Refreshing short-lived certificates before shutdown..."
     "${REFRESH_CERTS_SCRIPT}" --proxy-env "${PROXY_ENV}" || echo "Warning: Certificate refresh failed. Proceeding with shutdown."
     echo ""
 else

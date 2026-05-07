@@ -1,22 +1,13 @@
 #!/bin/bash
 #
-# refresh-certificates.sh - Force renewal of OpenShift API server certificates
+# refresh-certificates.sh - Refresh expiring OpenShift API server signer certificates
 #
-# This script forces the kube-apiserver-operator to regenerate all short-lived
-# signer certificates with fresh 24-hour validity. This is useful before shutting
-# down a cluster for an extended period to maximize the certificate validity
-# window on the next startup.
-#
-# Background:
-#   OpenShift uses short-lived (24h) intermediate signing certificates that
-#   automatically rotate. Leaf certificates (like API server serving certs)
-#   are capped by the remaining validity of their signer. If you shut down
-#   a cluster when signers are close to expiration, the leaf certs may have
-#   very short remaining validity, causing startup failures if the cluster
-#   is stopped for too long.
+# This script checks each kube-apiserver signer certificate's remaining validity.
+# Only signers expiring within a threshold (default: 7 days) are deleted and regenerated.
+# Long-lived signers (e.g. 10-year) are left untouched to avoid invalidating the kubeconfig's embedded CA.
 #
 # Usage:
-#   ./refresh-certificates.sh [--proxy-env /path/to/proxy.env]
+#   ./refresh-certificates.sh [--proxy-env /path/to/proxy.env] [--threshold HOURS]
 #
 # If --proxy-env is not specified, the script will look for proxy.env in
 # the standard location relative to the two-node-toolbox deploy directory.
@@ -31,23 +22,32 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Default proxy.env location (relative to helpers/)
 DEFAULT_PROXY_ENV="${SCRIPT_DIR}/../deploy/openshift-clusters/proxy.env"
 
+# Signers expiring within this threshold (in hours) will be refreshed
+DEFAULT_THRESHOLD_HOURS=168
+
 # Parse arguments
 PROXY_ENV=""
+THRESHOLD_HOURS="${DEFAULT_THRESHOLD_HOURS}"
 while [[ $# -gt 0 ]]; do
     case $1 in
         --proxy-env)
             PROXY_ENV="$2"
             shift 2
             ;;
+        --threshold)
+            THRESHOLD_HOURS="$2"
+            shift 2
+            ;;
         -h|--help)
-            echo "Usage: $0 [--proxy-env /path/to/proxy.env]"
+            echo "Usage: $0 [--proxy-env /path/to/proxy.env] [--threshold HOURS]"
             echo ""
-            echo "Force renewal of OpenShift API server certificates to maximize"
-            echo "validity window before cluster shutdown."
+            echo "Refresh expiring OpenShift API server signer certificates."
+            echo "Only signers expiring within the threshold are refreshed."
             echo ""
             echo "Options:"
-            echo "  --proxy-env PATH  Path to proxy.env file (default: deploy/openshift-clusters/proxy.env)"
-            echo "  -h, --help        Show this help message"
+            echo "  --proxy-env PATH   Path to proxy.env file (default: deploy/openshift-clusters/proxy.env)"
+            echo "  --threshold HOURS  Refresh signers expiring within this many hours (default: ${DEFAULT_THRESHOLD_HOURS})"
+            echo "  -h, --help         Show this help message"
             exit 0
             ;;
         *)
@@ -62,6 +62,8 @@ done
 if [[ -z "${PROXY_ENV}" ]]; then
     PROXY_ENV="${DEFAULT_PROXY_ENV}"
 fi
+
+THRESHOLD_SECONDS=$((THRESHOLD_HOURS * 3600))
 
 echo "========================================"
 echo "OpenShift Certificate Refresh"
@@ -100,7 +102,6 @@ fi
 echo "Cluster API is accessible."
 echo ""
 
-# List of short-lived signer secrets to refresh
 SIGNERS=(
     "aggregator-client-signer"
     "loadbalancer-serving-signer"
@@ -108,25 +109,48 @@ SIGNERS=(
     "service-network-serving-signer"
 )
 
-echo "Forcing renewal of API server signer certificates..."
+echo "Checking signer certificate expiry (refresh threshold: ${THRESHOLD_HOURS}h)..."
 echo ""
 
-# Helper function to display certificate expiry times
-show_cert_expiry() {
-    for signer in "${SIGNERS[@]}"; do
-        EXPIRY=$(oc get secret "${signer}" -n openshift-kube-apiserver-operator \
-            -o jsonpath='{.metadata.annotations.auth\.openshift\.io/certificate-not-after}' 2>/dev/null || echo "not found")
-        echo "  ${signer}: ${EXPIRY}"
-    done
-}
+NOW_EPOCH=$(date +%s)
+SIGNERS_TO_REFRESH=()
 
-echo "Current certificate expiry times:"
-show_cert_expiry
-echo ""
-
-# Delete signer secrets to trigger regeneration
-echo "Deleting signer secrets to trigger regeneration..."
 for signer in "${SIGNERS[@]}"; do
+    EXPIRY=$(oc get secret "${signer}" -n openshift-kube-apiserver-operator \
+        -o jsonpath='{.metadata.annotations.auth\.openshift\.io/certificate-not-after}' 2>/dev/null || echo "")
+
+    if [[ -z "${EXPIRY}" ]]; then
+        echo "  ${signer}: expiry not found, skipping"
+        continue
+    fi
+
+    EXPIRY_EPOCH=$(date -d "${EXPIRY}" +%s 2>/dev/null || echo "0")
+    if [[ "${EXPIRY_EPOCH}" == "0" ]]; then
+        echo "  ${signer}: could not parse expiry '${EXPIRY}', skipping"
+        continue
+    fi
+
+    REMAINING=$((EXPIRY_EPOCH - NOW_EPOCH))
+    REMAINING_HOURS=$((REMAINING / 3600))
+
+    if [[ ${REMAINING} -le ${THRESHOLD_SECONDS} ]]; then
+        echo "  ${signer}: expires ${EXPIRY} (${REMAINING_HOURS}h remaining) -> Will refresh"
+        SIGNERS_TO_REFRESH+=("${signer}")
+    else
+        echo "  ${signer}: expires ${EXPIRY} (${REMAINING_HOURS}h remaining) -> Skipping"
+    fi
+done
+
+echo ""
+
+if [[ ${#SIGNERS_TO_REFRESH[@]} -eq 0 ]]; then
+    echo "All signer certificates have sufficient remaining validity."
+    echo "No refresh needed."
+    exit 0
+fi
+
+echo "Refreshing ${#SIGNERS_TO_REFRESH[@]} signer(s)..."
+for signer in "${SIGNERS_TO_REFRESH[@]}"; do
     echo "  Deleting ${signer}..."
     oc delete secret "${signer}" -n openshift-kube-apiserver-operator --ignore-not-found=true
 done
@@ -134,12 +158,12 @@ done
 echo ""
 echo "Waiting for certificate regeneration (up to 60s)..."
 
-# Wait for all secrets to be recreated (active polling instead of fixed sleep)
 TIMEOUT=60
 ELAPSED=0
+ALL_EXIST=false
 while [[ ${ELAPSED} -lt ${TIMEOUT} ]]; do
     ALL_EXIST=true
-    for signer in "${SIGNERS[@]}"; do
+    for signer in "${SIGNERS_TO_REFRESH[@]}"; do
         if ! oc get secret "${signer}" -n openshift-kube-apiserver-operator &>/dev/null; then
             ALL_EXIST=false
             break
@@ -155,13 +179,16 @@ done
 echo ""
 echo ""
 
-echo "New certificate expiry times:"
-show_cert_expiry
+echo "Updated certificate expiry times:"
+for signer in "${SIGNERS_TO_REFRESH[@]}"; do
+    EXPIRY=$(oc get secret "${signer}" -n openshift-kube-apiserver-operator \
+        -o jsonpath='{.metadata.annotations.auth\.openshift\.io/certificate-not-after}' 2>/dev/null || echo "not found")
+    echo "  ${signer}: ${EXPIRY}"
+done
 echo ""
 
 if [[ "${ALL_EXIST}" == "true" ]]; then
     echo "Certificate refresh completed successfully!"
-    echo "All signers renewed with fresh 24-hour validity."
 else
     echo "Warning: Some certificates may still be regenerating."
     echo "Check kube-apiserver-operator logs if issues persist."
