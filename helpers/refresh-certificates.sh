@@ -200,4 +200,5 @@ if [[ "${ALL_EXIST}" == "true" ]]; then
 else
     echo "Warning: Some certificates may still be regenerating."
     echo "Check kube-apiserver-operator logs if issues persist."
+    exit 1
 fi
