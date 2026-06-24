@@ -1,0 +1,105 @@
+---
+# Kepler Power Monitoring Deployment for TNF Clusters
+#
+# This playbook deploys Kepler power monitoring with Grafana dashboards
+# on TNF (Two Nodes with Fencing) clusters.
+#
+# Usage:
+#   ansible-playbook kepler.yml -i inventory.ini
+#
+# To remove Kepler:
+#   ansible-playbook kepler.yml -i inventory.ini -e kepler_state=absent
+#
+# Options:
+#   -e grafana_enabled=false    Skip Grafana deployment
+#   -e kepler_state=absent      Remove Kepler from cluster
+
+- name: Deploy Kepler Power Monitoring on TNF Cluster
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  vars:
+    # Load proxy configuration if proxy.env exists
+    proxy_env_file: "./proxy.env"
+
+  pre_tasks:
+    - name: Check if proxy.env file exists
+      ansible.builtin.stat:
+        path: "{{ proxy_env_file }}"
+      register: proxy_env_stat
+
+    - name: Source proxy.env and extract environment variables
+      ansible.builtin.shell: |
+        source {{ proxy_env_file }} && env | grep -E '^(KUBECONFIG|HTTP_PROXY|HTTPS_PROXY|NO_PROXY)='
+      register: proxy_env_vars
+      when: proxy_env_stat.stat.exists
+      failed_when: false
+      changed_when: false
+
+    - name: Parse environment variables from proxy.env
+      ansible.builtin.set_fact:
+        proxy_vars: "{{ proxy_vars | default({}) | combine({item.split('=')[0]: item.split('=')[1:]|join('=')}) }}"
+      loop: "{{ proxy_env_vars.stdout_lines | default([]) }}"
+      when:
+        - proxy_env_stat.stat.exists
+        - proxy_env_vars.stdout_lines is defined
+
+    - name: Set proxy variables for role
+      ansible.builtin.set_fact:
+        proxy_kubeconfig: "{{ proxy_vars.KUBECONFIG | default(lookup('env', 'KUBECONFIG')) }}"
+        proxy_http_proxy: "{{ proxy_vars.HTTP_PROXY | default('') }}"
+        proxy_https_proxy: "{{ proxy_vars.HTTPS_PROXY | default('') }}"
+        proxy_no_proxy: "{{ proxy_vars.NO_PROXY | default('') }}"
+        proxy_k8s_auth_proxy: "{{ proxy_vars.HTTP_PROXY | default('') }}"
+      when: proxy_env_stat.stat.exists
+
+    - name: Use environment KUBECONFIG if no proxy.env
+      ansible.builtin.set_fact:
+        proxy_kubeconfig: "{{ lookup('env', 'KUBECONFIG') }}"
+      when: not proxy_env_stat.stat.exists
+
+    - name: Verify cluster access
+      ansible.builtin.shell: |
+        oc get namespace default -o name
+      environment:
+        KUBECONFIG: "{{ proxy_kubeconfig }}"
+        HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+        HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+        NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+      register: cluster_check
+      changed_when: false
+      failed_when: cluster_check.rc != 0
+
+    - name: Display deployment information
+      ansible.builtin.debug:
+        msg: |
+          Kepler Power Monitoring Deployment
+          -----------------------------------
+          State: {{ kepler_state | default('present') }}
+          Grafana: {{ grafana_enabled | default(true) }}
+          KUBECONFIG: {{ proxy_kubeconfig | default('not set') }}
+
+  roles:
+    - role: kepler
+
+  post_tasks:
+    - name: Deployment summary
+      ansible.builtin.debug:
+        msg: |
+          {% if kepler_state | default('present') == 'present' %}
+          Kepler Power Monitoring deployed successfully!
+
+          Next steps:
+          1. Wait a few minutes for metrics to be collected
+          2. Access Grafana dashboard (if enabled):
+             oc get route grafana-route -n grafana -o jsonpath='{.spec.host}'
+          3. Query metrics in OpenShift Console:
+             Observe -> Metrics -> kepler_node_cpu_joules_total
+
+          Useful PromQL queries:
+          - Total power: sum(rate(kepler_node_cpu_joules_total[5m])) * 60
+          - Power by node: sum by (instance) (rate(kepler_node_cpu_joules_total[5m])) * 60
+          {% else %}
+          Kepler Power Monitoring has been removed from the cluster.
+          {% endif %}

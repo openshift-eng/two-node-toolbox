@@ -88,6 +88,12 @@ patch-nodes:
 get-tnf-logs:
 	@./openshift-clusters/scripts/get-tnf-logs.sh
 
+deploy-kepler:
+	@./openshift-clusters/scripts/deploy-kepler.sh
+
+remove-kepler:
+	@./openshift-clusters/scripts/remove-kepler.sh
+
 help:
 	@echo "Available commands:"
 	@echo ""
@@ -105,7 +111,7 @@ help:
 	@echo "Instance Utils:"
 	@echo "  ssh                  - SSH into the EC2 instance"
 	@echo "  info                 - Display instance information"
-	@echo "  inventory            - Update inventory.ini with current instance IP" 
+	@echo "  inventory            - Update inventory.ini with current instance IP"
 	@echo ""
 	@echo "OpenShift Cluster Deployment:"
 	@echo "  fencing-ipi          - Deploy fencing IPI cluster (non-interactive)"
@@ -127,4 +133,8 @@ help:
 	@echo ""
 	@echo "Cluster Utilities:"
 	@echo "  get-tnf-logs         - Collect pacemaker and etcd logs from cluster nodes"
+	@echo ""
+	@echo "Power Monitoring:"
+	@echo "  deploy-kepler        - Deploy Kepler power monitoring (v0.11.3)"
+	@echo "  remove-kepler        - Remove Kepler power monitoring from cluster"
 

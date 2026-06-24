@@ -1,0 +1,354 @@
+---
+# Deploy Grafana using oc commands (no OLM required)
+# For viewing Kepler power metrics
+#
+# Authentication flow:
+#   1. Create ServiceAccount "grafana" with cluster-monitoring-view role
+#   2. Create a token Secret for the ServiceAccount
+#   3. Use the token as Bearer auth header when querying Thanos Querier
+#
+# Data flow:
+#   Grafana -> Thanos Querier (Bearer token) -> Prometheus -> Kepler metrics
+
+- name: Create Grafana namespace
+  ansible.builtin.shell: |
+    oc create namespace {{ grafana_namespace }} --dry-run=client -o yaml | oc apply -f -
+  environment:
+    KUBECONFIG: "{{ kepler_kubeconfig }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+    NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+  register: ns_result
+  changed_when: "'created' in ns_result.stdout or 'configured' in ns_result.stdout"
+
+- name: Create ServiceAccount for Grafana Prometheus access
+  ansible.builtin.shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: grafana
+      namespace: {{ grafana_namespace }}
+    EOF
+  environment:
+    KUBECONFIG: "{{ kepler_kubeconfig }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+    NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+  register: sa_result
+  changed_when: "'created' in sa_result.stdout or 'configured' in sa_result.stdout"
+
+- name: Create ClusterRoleBinding for Grafana to read metrics
+  ansible.builtin.shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: grafana-cluster-monitoring-view
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: cluster-monitoring-view
+    subjects:
+      - kind: ServiceAccount
+        name: grafana
+        namespace: {{ grafana_namespace }}
+    EOF
+  environment:
+    KUBECONFIG: "{{ kepler_kubeconfig }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+    NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+  register: crb_result
+  changed_when: "'created' in crb_result.stdout or 'configured' in crb_result.stdout"
+
+- name: Create ServiceAccount token for Grafana
+  ansible.builtin.shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: grafana-token
+      namespace: {{ grafana_namespace }}
+      annotations:
+        kubernetes.io/service-account.name: grafana
+    type: kubernetes.io/service-account-token
+    EOF
+  environment:
+    KUBECONFIG: "{{ kepler_kubeconfig }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+    NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+  register: token_result
+  changed_when: "'created' in token_result.stdout or 'configured' in token_result.stdout"
+
+- name: Wait for token to be populated
+  ansible.builtin.shell: |
+    for i in $(seq 1 10); do
+      TOKEN=$(oc get secret grafana-token -n {{ grafana_namespace }} -o jsonpath='{.data.token}' 2>/dev/null)
+      if [ -n "$TOKEN" ]; then
+        echo "$TOKEN"
+        exit 0
+      fi
+      sleep 5
+    done
+    echo "TIMEOUT"
+    exit 1
+  environment:
+    KUBECONFIG: "{{ kepler_kubeconfig }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+    NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+  register: token_wait
+  changed_when: false
+  failed_when: "'TIMEOUT' in token_wait.stdout"
+
+- name: Set Grafana SA token fact
+  set_fact:
+    grafana_sa_token: "{{ token_wait.stdout | b64decode }}"
+
+- name: Create Grafana datasource ConfigMap
+  ansible.builtin.shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: grafana-datasources
+      namespace: {{ grafana_namespace }}
+    data:
+      datasources.yaml: |
+        apiVersion: 1
+        datasources:
+          - name: Prometheus
+            type: prometheus
+            access: proxy
+            url: https://thanos-querier.openshift-monitoring.svc.cluster.local:9091
+            isDefault: true
+            jsonData:
+              httpHeaderName1: Authorization
+              timeInterval: 30s
+              tlsSkipVerify: true
+            secureJsonData:
+              httpHeaderValue1: "Bearer {{ grafana_sa_token }}"
+            editable: false
+    EOF
+  environment:
+    KUBECONFIG: "{{ kepler_kubeconfig }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+    NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+  register: ds_result
+  changed_when: "'created' in ds_result.stdout or 'configured' in ds_result.stdout"
+
+- name: Create Grafana dashboard provisioning ConfigMap
+  ansible.builtin.shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: grafana-dashboards-config
+      namespace: {{ grafana_namespace }}
+    data:
+      dashboards.yaml: |
+        apiVersion: 1
+        providers:
+          - name: 'default'
+            orgId: 1
+            folder: ''
+            type: file
+            disableDeletion: false
+            updateIntervalSeconds: 30
+            options:
+              path: /var/lib/grafana/dashboards
+    EOF
+  environment:
+    KUBECONFIG: "{{ kepler_kubeconfig }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+    NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+  register: dashcfg_result
+  changed_when: "'created' in dashcfg_result.stdout or 'configured' in dashcfg_result.stdout"
+
+- name: Generate TNF Power Dashboard ConfigMap
+  ansible.builtin.template:
+    src: tnf-power-dashboard-cm.yaml.j2
+    dest: /tmp/tnf-power-dashboard-cm.yaml
+
+- name: Create TNF Power Dashboard ConfigMap
+  ansible.builtin.shell: |
+    cat /tmp/tnf-power-dashboard-cm.yaml | oc apply -f -
+  environment:
+    KUBECONFIG: "{{ kepler_kubeconfig }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+    NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+  register: dashboard_result
+  changed_when: "'created' in dashboard_result.stdout or 'configured' in dashboard_result.stdout"
+
+- name: Deploy Grafana Deployment
+  ansible.builtin.shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: grafana
+      namespace: {{ grafana_namespace }}
+      labels:
+        app: grafana
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: grafana
+      template:
+        metadata:
+          labels:
+            app: grafana
+        spec:
+          serviceAccountName: grafana
+          containers:
+            - name: grafana
+              image: {{ grafana_image }}
+              imagePullPolicy: IfNotPresent
+              ports:
+                - containerPort: 3000
+                  name: http
+                  protocol: TCP
+              env:
+                - name: GF_AUTH_ANONYMOUS_ENABLED
+                  value: "true"
+                - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+                  value: Admin
+                - name: GF_AUTH_DISABLE_LOGIN_FORM
+                  value: "true"
+                - name: GF_PATHS_PROVISIONING
+                  value: /etc/grafana/provisioning
+              volumeMounts:
+                - name: grafana-datasources
+                  mountPath: /etc/grafana/provisioning/datasources
+                  readOnly: true
+                - name: grafana-dashboards-config
+                  mountPath: /etc/grafana/provisioning/dashboards
+                  readOnly: true
+                - name: grafana-dashboards
+                  mountPath: /var/lib/grafana/dashboards
+                  readOnly: true
+                - name: grafana-storage
+                  mountPath: /var/lib/grafana
+          volumes:
+            - name: grafana-datasources
+              configMap:
+                name: grafana-datasources
+            - name: grafana-dashboards-config
+              configMap:
+                name: grafana-dashboards-config
+            - name: grafana-dashboards
+              configMap:
+                name: tnf-power-dashboard
+            - name: grafana-storage
+              emptyDir: {}
+    EOF
+  environment:
+    KUBECONFIG: "{{ kepler_kubeconfig }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+    NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+  register: deploy_result
+  changed_when: "'created' in deploy_result.stdout or 'configured' in deploy_result.stdout"
+
+- name: Create Grafana Service
+  ansible.builtin.shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: grafana
+      namespace: {{ grafana_namespace }}
+      labels:
+        app: grafana
+    spec:
+      ports:
+        - name: http
+          port: 3000
+          targetPort: 3000
+          protocol: TCP
+      selector:
+        app: grafana
+      type: ClusterIP
+    EOF
+  environment:
+    KUBECONFIG: "{{ kepler_kubeconfig }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+    NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+  register: svc_result
+  changed_when: "'created' in svc_result.stdout or 'configured' in svc_result.stdout"
+
+- name: Create Grafana Route
+  ansible.builtin.shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: route.openshift.io/v1
+    kind: Route
+    metadata:
+      name: grafana
+      namespace: {{ grafana_namespace }}
+      labels:
+        app: grafana
+    spec:
+      to:
+        kind: Service
+        name: grafana
+      port:
+        targetPort: http
+      tls:
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
+    EOF
+  environment:
+    KUBECONFIG: "{{ kepler_kubeconfig }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+    NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+  register: route_result
+  changed_when: "'created' in route_result.stdout or 'configured' in route_result.stdout"
+
+- name: Wait for Grafana deployment to be ready
+  ansible.builtin.shell: |
+    for i in $(seq 1 {{ operator_ready_retries }}); do
+      READY=$(oc get deployment grafana -n {{ grafana_namespace }} -o jsonpath='{.status.availableReplicas}' 2>/dev/null || echo "0")
+      if [ "$READY" -ge 1 ]; then
+        echo "READY"
+        exit 0
+      fi
+      sleep 10
+    done
+    echo "TIMEOUT"
+    exit 1
+  environment:
+    KUBECONFIG: "{{ kepler_kubeconfig }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+    NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+  register: grafana_ready
+  changed_when: false
+  failed_when: "'TIMEOUT' in grafana_ready.stdout"
+
+- name: Get Grafana route URL
+  ansible.builtin.shell: |
+    oc get route grafana -n {{ grafana_namespace }} -o jsonpath='{.spec.host}'
+  environment:
+    KUBECONFIG: "{{ kepler_kubeconfig }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+    NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+  register: grafana_route
+  changed_when: false
+
+- name: Display Grafana access information
+  ansible.builtin.debug:
+    msg: |
+      Grafana deployed successfully!
+
+      Access URL: https://{{ grafana_route.stdout }}
+      Dashboard: TNF Power Monitoring
+      Power Data Mode: {{ 'REAL (bare metal RAPL)' if (kepler_rapl_available | default(false) | bool) else 'ESTIMATED (VM/virtualized - no RAPL)' }}

@@ -1,0 +1,26 @@
+---
+# Default variables for the kepler role
+# These variables can be overridden when calling the role
+
+# Kepler configuration
+kepler_namespace: "kepler"
+kepler_image: "quay.io/sustainable_computing_io/kepler:v0.11.3"
+kepler_port: 9188
+
+# Grafana configuration
+grafana_enabled: true
+grafana_namespace: "grafana"
+grafana_image: "docker.io/grafana/grafana:10.4.1"
+
+# User workload monitoring (required for ServiceMonitor)
+enable_user_workload_monitoring: true
+
+# Scrape interval for Kepler metrics
+kepler_scrape_interval: "30s"
+
+# State for idempotent operations (present/absent)
+kepler_state: "present"
+
+# Wait timeouts (in retries, each retry is 10 seconds)
+operator_ready_retries: 30
+daemonset_ready_retries: 30

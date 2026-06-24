@@ -1,0 +1,295 @@
+---
+# Main tasks for kepler role
+# Deploys Kepler power monitoring on TNF clusters using oc commands
+# (Consistent with other roles - no kubernetes.core dependency)
+
+- name: Set KUBECONFIG environment
+  ansible.builtin.set_fact:
+    kepler_kubeconfig: "{{ proxy_kubeconfig | default(lookup('env', 'KUBECONFIG')) }}"
+
+- name: Set common environment for all oc commands
+  ansible.builtin.set_fact:
+    kepler_env:
+      KUBECONFIG: "{{ kepler_kubeconfig }}"
+      HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+      HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+      NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+
+- name: Deploy Kepler exporter
+  when: kepler_state == "present"
+  environment:
+    KUBECONFIG: "{{ kepler_kubeconfig }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+    NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+  block:
+    - name: Create Kepler namespace
+      ansible.builtin.shell: |
+        oc create namespace {{ kepler_namespace }} --dry-run=client -o yaml | oc apply -f -
+      register: ns_result
+      changed_when: "'created' in ns_result.stdout or 'configured' in ns_result.stdout"
+
+    - name: Wait for namespace to be fully initialized
+      ansible.builtin.shell: |
+        for i in $(seq 1 30); do
+          ANNOTATION=$(oc get namespace {{ kepler_namespace }} -o jsonpath='{.metadata.annotations.openshift\.io/sa\.scc\.uid-range}' 2>/dev/null)
+          if [ -n "$ANNOTATION" ]; then
+            echo "READY: $ANNOTATION"
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "TIMEOUT"
+        exit 1
+      register: ns_ready
+      changed_when: false
+      failed_when: "'TIMEOUT' in ns_ready.stdout"
+
+    - name: Create Kepler ServiceAccount
+      ansible.builtin.shell: |
+        cat <<EOF | oc apply -f -
+        apiVersion: v1
+        kind: ServiceAccount
+        metadata:
+          name: kepler-sa
+          namespace: {{ kepler_namespace }}
+        EOF
+      register: sa_result
+      changed_when: "'created' in sa_result.stdout or 'configured' in sa_result.stdout"
+
+    - name: Create Kepler ClusterRole
+      ansible.builtin.shell: |
+        cat <<EOF | oc apply -f -
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRole
+        metadata:
+          name: kepler-clusterrole
+        rules:
+          - apiGroups: [""]
+            resources: ["nodes", "pods", "namespaces"]
+            verbs: ["get", "list", "watch"]
+        EOF
+      register: cr_result
+      changed_when: "'created' in cr_result.stdout or 'configured' in cr_result.stdout"
+
+    - name: Create Kepler ClusterRoleBinding
+      ansible.builtin.shell: |
+        cat <<EOF | oc apply -f -
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        metadata:
+          name: kepler-clusterrole-binding
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: ClusterRole
+          name: kepler-clusterrole
+        subjects:
+          - kind: ServiceAccount
+            name: kepler-sa
+            namespace: {{ kepler_namespace }}
+        EOF
+      register: crb_result
+      changed_when: "'created' in crb_result.stdout or 'configured' in crb_result.stdout"
+
+    - name: Add Kepler ServiceAccount to privileged SCC
+      ansible.builtin.shell: |
+        oc adm policy add-scc-to-user privileged -z kepler-sa -n {{ kepler_namespace }}
+      register: scc_result
+      changed_when: "'added' in scc_result.stdout or scc_result.rc == 0"
+      failed_when: false
+
+    - name: Create Kepler ConfigMap
+      ansible.builtin.shell: |
+        cat <<EOF | oc apply -f -
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: kepler-cfm
+          namespace: {{ kepler_namespace }}
+        data:
+          KEPLER_LOG_LEVEL: "1"
+          KEPLER_EXPOSE_HARDWARE_COUNTER_METRICS: "true"
+          KEPLER_EXPOSE_CGROUP_METRICS: "true"
+          KEPLER_EXPOSE_BPF_METRICS: "true"
+        EOF
+      register: cm_result
+      changed_when: "'created' in cm_result.stdout or 'configured' in cm_result.stdout"
+
+    - name: Create Kepler config for VM mode (fake-cpu-meter)
+      ansible.builtin.shell: |
+        cat <<'EOF' | oc apply -f -
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: kepler-config
+          namespace: {{ kepler_namespace }}
+        data:
+          kepler.yaml: |
+            log:
+              level: info
+              format: text
+            dev:
+              fake-cpu-meter:
+                enabled: true
+                zones:
+                  - package-0
+            rapl:
+              zones: []
+            exporter:
+              prometheus:
+                enabled: true
+            monitor:
+              interval: 5s
+        EOF
+      register: cfg_result
+      changed_when: "'created' in cfg_result.stdout or 'configured' in cfg_result.stdout"
+
+    - name: Generate Kepler DaemonSet manifest
+      ansible.builtin.template:
+        src: kepler-daemonset.yaml.j2
+        dest: /tmp/kepler-daemonset.yaml
+
+    - name: Deploy Kepler DaemonSet
+      ansible.builtin.shell: |
+        cat /tmp/kepler-daemonset.yaml | oc apply -f -
+      register: ds_result
+      changed_when: "'created' in ds_result.stdout or 'configured' in ds_result.stdout"
+
+    - name: Create Kepler Service
+      ansible.builtin.shell: |
+        cat <<EOF | oc apply -f -
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: kepler-exporter
+          namespace: {{ kepler_namespace }}
+          labels:
+            app.kubernetes.io/name: kepler-exporter
+        spec:
+          ports:
+            - name: http
+              port: {{ kepler_port }}
+              targetPort: {{ kepler_port }}
+              protocol: TCP
+          selector:
+            app.kubernetes.io/name: kepler-exporter
+          type: ClusterIP
+        EOF
+      register: svc_result
+      changed_when: "'created' in svc_result.stdout or 'configured' in svc_result.stdout"
+
+    - name: Wait for Kepler DaemonSet to be ready
+      ansible.builtin.shell: |
+        for i in $(seq 1 {{ daemonset_ready_retries }}); do
+          READY=$(oc get daemonset kepler-exporter -n {{ kepler_namespace }} -o jsonpath='{.status.numberReady}' 2>/dev/null || echo "0")
+          if [ "$READY" -ge 1 ]; then
+            echo "READY:$READY"
+            exit 0
+          fi
+          sleep 10
+        done
+        echo "TIMEOUT"
+        exit 1
+      register: ds_ready
+      changed_when: false
+      failed_when: "'TIMEOUT' in ds_ready.stdout"
+
+    - name: Kepler exporter deployed successfully
+      ansible.builtin.debug:
+        msg: "Kepler exporter DaemonSet is running ({{ ds_ready.stdout }})"
+
+    - name: Check if nodes have RAPL (bare metal detection)
+      ansible.builtin.shell: |
+        POD=$(oc get pods -n {{ kepler_namespace }} -l app.kubernetes.io/name=kepler-exporter -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+        if [ -z "$POD" ]; then
+          echo "NO_POD"
+          exit 0
+        fi
+        RAPL_CHECK=$(oc exec -n {{ kepler_namespace }} $POD -- ls /sys/class/powercap/intel-rapl 2>/dev/null || echo "NOT_FOUND")
+        if [ "$RAPL_CHECK" = "NOT_FOUND" ] || [ -z "$RAPL_CHECK" ]; then
+          echo "NO_RAPL"
+        else
+          echo "RAPL_AVAILABLE"
+        fi
+      register: rapl_check_result
+      changed_when: false
+      failed_when: false
+
+    - name: Set RAPL availability fact
+      ansible.builtin.set_fact:
+        kepler_rapl_available: "{{ rapl_check_result.stdout | trim == 'RAPL_AVAILABLE' }}"
+
+    - name: Display bare metal power monitoring status
+      ansible.builtin.debug:
+        msg: |
+          KEPLER POWER MONITORING - BARE METAL
+          Intel RAPL detected: Real hardware power measurement available
+          Kepler is reading actual power consumption from CPU registers.
+      when: kepler_rapl_available | bool
+
+    - name: Display VM/virtualized environment warning
+      ansible.builtin.debug:
+        msg: |
+          KEPLER POWER MONITORING - VIRTUALIZED MODE
+          WARNING: Intel RAPL not detected - nodes appear to be VMs
+          Kepler is using fake-cpu-meter for simulated power values.
+          Power values shown are ESTIMATES based on CPU cycles.
+      when: not (kepler_rapl_available | bool)
+
+- name: Configure monitoring integration
+  include_tasks: monitoring.yml
+  when: kepler_state == "present"
+
+- name: Deploy Grafana and dashboards
+  include_tasks: grafana.yml
+  when:
+    - kepler_state == "present"
+    - grafana_enabled | bool
+
+- name: Remove Kepler deployment
+  when: kepler_state == "absent"
+  environment:
+    KUBECONFIG: "{{ kepler_kubeconfig }}"
+    HTTP_PROXY: "{{ proxy_http_proxy | default('') }}"
+    HTTPS_PROXY: "{{ proxy_https_proxy | default('') }}"
+    NO_PROXY: "{{ proxy_no_proxy | default('') }}"
+  block:
+    - name: Remove Kepler DaemonSet
+      ansible.builtin.shell: |
+        oc delete daemonset kepler-exporter -n {{ kepler_namespace }} --ignore-not-found=true
+      changed_when: true
+      ignore_errors: true
+
+    - name: Remove Kepler Service
+      ansible.builtin.shell: |
+        oc delete service kepler-exporter -n {{ kepler_namespace }} --ignore-not-found=true
+      changed_when: true
+      ignore_errors: true
+
+    - name: Remove Kepler SA from privileged SCC
+      ansible.builtin.shell: |
+        oc adm policy remove-scc-from-user privileged -z kepler-sa -n {{ kepler_namespace }} || true
+      ignore_errors: true
+      changed_when: true
+
+    - name: Remove Kepler ClusterRoleBinding
+      ansible.builtin.shell: |
+        oc delete clusterrolebinding kepler-clusterrole-binding --ignore-not-found=true
+      changed_when: true
+      ignore_errors: true
+
+    - name: Remove Kepler ClusterRole
+      ansible.builtin.shell: |
+        oc delete clusterrole kepler-clusterrole --ignore-not-found=true
+      changed_when: true
+      ignore_errors: true
+
+    - name: Remove Kepler namespace
+      ansible.builtin.shell: |
+        oc delete namespace {{ kepler_namespace }} --ignore-not-found=true
+      changed_when: true
+      ignore_errors: true
+
+    - name: Kepler removed
+      ansible.builtin.debug:
+        msg: "Kepler power monitoring has been removed from the cluster"
