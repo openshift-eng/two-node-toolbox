@@ -1,0 +1,94 @@
+---
+- name: "[boot] Check if RHCOS live ISO exists on hypervisor"
+  stat:
+    path: "/var/lib/libvirt/images/rhcos-live.iso"
+  register: iso_stat
+
+- name: "[boot] Find RHCOS live ISO from dev-scripts cache"
+  shell: |
+    DEVSCRIPTS_ISO=$(find /var/lib/libvirt/images -name 'rhcos-*-live*.iso' 2>/dev/null | head -1)
+    if [ -n "$DEVSCRIPTS_ISO" ]; then
+      echo "Using existing ISO: $DEVSCRIPTS_ISO"
+      sudo ln -sf "$DEVSCRIPTS_ISO" /var/lib/libvirt/images/rhcos-live.iso
+      exit 0
+    fi
+
+    CACHE_ISO=$(find {{ sno_dev_scripts_path }}/ -name 'rhcos-*-live*.iso' 2>/dev/null | head -1)
+    if [ -n "$CACHE_ISO" ]; then
+      echo "Using dev-scripts cached ISO: $CACHE_ISO"
+      sudo ln -sf "$CACHE_ISO" /var/lib/libvirt/images/rhcos-live.iso
+      exit 0
+    fi
+
+    echo "ERROR: No RHCOS live ISO found. Set sno_rhcos_live_iso variable."
+    exit 1
+  when: not iso_stat.stat.exists and sno_rhcos_live_iso == ""
+
+- name: "[boot] Set ISO path"
+  set_fact:
+    sno_iso_path: "{{ sno_rhcos_live_iso if sno_rhcos_live_iso else '/var/lib/libvirt/images/rhcos-live.iso' }}"
+
+- name: "[boot] Read master.ign content"
+  slurp:
+    src: /tmp/master.ign
+  register: master_ign_content
+
+- name: "[boot] Set base64-encoded master.ign"
+  set_fact:
+    sno_master_ign_b64: "{{ master_ign_content.content }}"
+
+- name: "[boot] Generate auto-install ignition"
+  template:
+    src: auto-install.ign.j2
+    dest: /tmp/auto-install.ign
+    mode: '0644'
+
+- name: "[boot] Create per-node ISO with embedded ignition"
+  shell: |
+    sudo cp {{ sno_iso_path }} /var/lib/libvirt/images/rhcos-{{ item.hostname }}.iso
+    sudo coreos-installer iso ignition embed -i /tmp/auto-install.ign /var/lib/libvirt/images/rhcos-{{ item.hostname }}.iso -f
+  loop: "{{ sno_new_nodes }}"
+
+- name: "[boot] Boot each VM with ignition-embedded ISO"
+  shell: |
+    VM_NAME="{{ item.name }}"
+    MAC="{{ sno_node_macs[item.hostname] }}"
+
+    sudo virsh destroy "$VM_NAME" 2>/dev/null || true
+    sudo virsh undefine "$VM_NAME" 2>/dev/null || true
+
+    sudo virt-install \
+      --name "$VM_NAME" \
+      --ram {{ sno_vm_ram_mb }} \
+      --vcpus {{ sno_vm_vcpus }} \
+      --disk {{ sno_vm_image_dir }}/${VM_NAME}.qcow2,bus=virtio \
+      --network network={{ sno_libvirt_network }},model=virtio,mac=${MAC} \
+      --cdrom /var/lib/libvirt/images/rhcos-{{ item.hostname }}.iso \
+      --os-variant rhel9.0 \
+      --graphics none \
+      --noautoconsole \
+      --boot hd,cdrom
+  loop: "{{ sno_new_nodes }}"
+
+- name: "[boot] Verify VMs are running"
+  shell: |
+    sudo virsh domstate {{ item.name }}
+  register: vm_state
+  loop: "{{ sno_new_nodes }}"
+  changed_when: false
+  failed_when: "'running' not in vm_state.stdout"
+
+- name: "[boot] Set on_reboot to restart (not destroy)"
+  shell: |
+    sudo virsh dumpxml {{ item.name }} | grep -q '<on_reboot>destroy</on_reboot>' && \
+      sudo virt-xml {{ item.name }} --edit --events on_reboot=restart 2>/dev/null || true
+  loop: "{{ sno_new_nodes }}"
+  failed_when: false
+  changed_when: true
+
+- name: "[boot] VMs booted with RHCOS"
+  debug:
+    msg: >-
+      {{ sno_new_nodes | length }} VMs booted with RHCOS ISO (ignition embedded).
+      coreos-installer will write to disk and reboot automatically.
+      Waiting for nodes to join the cluster...

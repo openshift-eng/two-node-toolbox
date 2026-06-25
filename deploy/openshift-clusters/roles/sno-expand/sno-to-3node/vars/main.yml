@@ -1,0 +1,22 @@
+---
+sno_dev_scripts_path: "{{ dev_scripts_path | default('openshift-metal3/dev-scripts') }}"
+sno_kubeconfig_resolved: >-
+  {{ sno_kubeconfig if sno_kubeconfig
+     else sno_dev_scripts_path ~ '/ocp/' ~ sno_cluster_name ~ '/auth/kubeconfig' }}
+sno_addnhosts_path: "/var/lib/libvirt/dnsmasq/{{ sno_libvirt_bridge }}.addnhosts"
+sno_lease_file: "/var/lib/libvirt/dnsmasq/{{ sno_libvirt_bridge }}.status"
+sno_nm_dnsmasq_conf: "/etc/NetworkManager/dnsmasq.d/openshift-{{ sno_cluster_name }}.conf"
+
+sno_oc_env:
+  KUBECONFIG: "{{ sno_kubeconfig_resolved }}"
+  PATH: "/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:{{ ansible_env.PATH | default('/usr/local/bin:/usr/bin') }}"
+
+sno_new_nodes:
+  - index: 1
+    name: "{{ sno_cluster_name }}_master_1"
+    hostname: "master-1"
+    ip: "{{ sno_master1_ip }}"
+  - index: 2
+    name: "{{ sno_cluster_name }}_master_2"
+    hostname: "master-2"
+    ip: "{{ sno_master2_ip }}"

@@ -1,0 +1,25 @@
+{
+  "ignition": {
+    "version": "3.2.0"
+  },
+  "storage": {
+    "files": [
+      {
+        "path": "/etc/master.ign",
+        "mode": 420,
+        "contents": {
+          "source": "data:text/plain;charset=utf-8;base64,{{ sno_master_ign_b64 }}"
+        }
+      }
+    ]
+  },
+  "systemd": {
+    "units": [
+      {
+        "name": "auto-install.service",
+        "enabled": true,
+        "contents": "[Unit]\nDescription=Auto-install RHCOS to disk\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/usr/bin/coreos-installer install /dev/vda --ignition-file /etc/master.ign --insecure\nExecStartPost=/usr/bin/systemctl reboot\n\n[Install]\nWantedBy=multi-user.target\n"
+      }
+    ]
+  }
+}

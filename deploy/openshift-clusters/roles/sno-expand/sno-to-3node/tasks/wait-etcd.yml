@@ -1,0 +1,52 @@
+---
+- name: "[wait-etcd] Poll for etcd scaling to 3 members"
+  shell: |
+    FULLY_READY=$(oc get pods -n openshift-etcd -l app=etcd -o json 2>/dev/null | python3 -c "
+    import json, sys
+    data = json.load(sys.stdin)
+    count = 0
+    for pod in data.get('items', []):
+        containers = pod.get('status', {}).get('containerStatuses', [])
+        if containers and all(c.get('ready', False) for c in containers):
+            count += 1
+    print(count)
+    " 2>/dev/null || echo "0")
+    echo "ETCD_FULLY_READY=$FULLY_READY"
+
+    if [ "$FULLY_READY" -ge 3 ]; then
+      echo "RESULT=done"
+    else
+      echo "RESULT=pending"
+    fi
+  environment: "{{ sno_oc_env }}"
+  register: etcd_poll
+  until: "'RESULT=done' in etcd_poll.stdout"
+  retries: "{{ (sno_etcd_timeout_minutes | int * 60 / 20) | int }}"
+  delay: 20
+  changed_when: false
+
+- name: "[etcd] Display etcd member list"
+  shell: |
+    ETCD_POD=$(oc get pods -n openshift-etcd -l app=etcd -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    oc exec -n openshift-etcd "$ETCD_POD" -c etcdctl -- etcdctl member list -w table 2>/dev/null || echo "Could not query etcd members"
+  environment: "{{ sno_oc_env }}"
+  register: etcd_members
+  changed_when: false
+  failed_when: false
+
+- name: "[etcd] Members"
+  debug:
+    msg: "{{ etcd_members.stdout }}"
+
+- name: "[etcd] Display etcd endpoint health"
+  shell: |
+    ETCD_POD=$(oc get pods -n openshift-etcd -l app=etcd -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    oc exec -n openshift-etcd "$ETCD_POD" -c etcdctl -- etcdctl endpoint health --cluster -w table 2>/dev/null || echo "Could not query endpoint health"
+  environment: "{{ sno_oc_env }}"
+  register: etcd_health
+  changed_when: false
+  failed_when: false
+
+- name: "[etcd] Health"
+  debug:
+    msg: "{{ etcd_health.stdout }}"

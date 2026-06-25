@@ -1,0 +1,48 @@
+---
+- name: "[wait-nodes] Poll for CSR approval and node join"
+  shell: |
+    PENDING=$(oc get csr -o json 2>/dev/null | python3 -c "
+    import json, sys
+    data = json.load(sys.stdin)
+    pending = []
+    for csr in data.get('items', []):
+        status = csr.get('status', {})
+        if not status.get('conditions'):
+            name = csr['metadata']['name']
+            pending.append(name)
+    for name in pending:
+        print(name)
+    " 2>/dev/null || true)
+
+    if [ -n "$PENDING" ]; then
+      for CSR in $PENDING; do
+        oc adm certificate approve "$CSR" 2>/dev/null || true
+        echo "Approved CSR: $CSR"
+      done
+    fi
+
+    READY_COUNT=$(oc get nodes --no-headers 2>/dev/null | grep -c ' Ready' || echo "0")
+    echo "READY_NODES=$READY_COUNT"
+
+    if [ "$READY_COUNT" -ge 3 ]; then
+      echo "RESULT=done"
+    else
+      echo "RESULT=pending"
+    fi
+  environment: "{{ sno_oc_env }}"
+  register: node_poll
+  until: "'RESULT=done' in node_poll.stdout"
+  retries: "{{ (sno_node_join_timeout_minutes | int * 60 / 20) | int }}"
+  delay: 20
+  changed_when: false
+
+- name: "[wait-nodes] Display final node list"
+  shell: |
+    oc get nodes -o wide
+  environment: "{{ sno_oc_env }}"
+  register: node_list
+  changed_when: false
+
+- name: "[wait-nodes] Nodes joined"
+  debug:
+    msg: "{{ node_list.stdout }}"

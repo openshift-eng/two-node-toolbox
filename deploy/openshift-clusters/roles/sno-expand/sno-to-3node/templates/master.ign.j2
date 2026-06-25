@@ -1,0 +1,21 @@
+{
+  "ignition": {
+    "version": "3.2.0",
+    "security": {
+      "tls": {
+        "certificateAuthorities": [
+          {
+            "source": "data:text/plain;charset=utf-8;base64,{{ sno_mcs_ca_b64 }}"
+          }
+        ]
+      }
+    },
+    "config": {
+      "merge": [
+        {
+          "source": "https://api-int.{{ sno_cluster_domain }}:22623/config/master"
+        }
+      ]
+    }
+  }
+}

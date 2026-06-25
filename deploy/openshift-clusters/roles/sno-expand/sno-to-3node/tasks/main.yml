@@ -1,0 +1,30 @@
+---
+- name: "Phase 0: Preflight checks"
+  import_tasks: preflight.yml
+
+- name: "Phase 1: Generate ignition config"
+  import_tasks: ignition.yml
+
+- name: "Phase 2: Create new VMs"
+  import_tasks: create-vms.yml
+
+- name: "Phase 3: Boot nodes with RHCOS"
+  import_tasks: boot-nodes.yml
+
+- name: "Phase 4: Wait for nodes to join"
+  import_tasks: wait-nodes.yml
+
+- name: "Phase 5: Wait for etcd scaling"
+  import_tasks: wait-etcd.yml
+
+- name: "Phase 6: Topology transition"
+  import_tasks: topology.yml
+
+- name: "Phase 7: MCO rollout"
+  import_tasks: mco-rollout.yml
+
+- name: "Phase 8: Update DNS for all nodes"
+  import_tasks: update-dns.yml
+
+- name: "Phase 9: Final verification"
+  import_tasks: verify.yml

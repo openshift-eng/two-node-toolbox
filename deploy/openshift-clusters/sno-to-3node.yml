@@ -1,0 +1,23 @@
+---
+- hosts: metal_machine
+  gather_facts: no
+  force_handlers: yes
+
+  pre_tasks:
+    - name: Confirm SNO to 3-node transition
+      ansible.builtin.pause:
+        prompt: >-
+          This will transition the SNO cluster to a 3-node HA cluster.
+          2 new VMs will be created. CVO will be scaled to 0.
+          Press Enter to proceed or Ctrl+C to abort.
+      delegate_to: localhost
+      run_once: true
+      when: interactive_mode | default(true) | bool
+
+  roles:
+    - sno-expand/sno-to-3node
+
+  tasks:
+    - name: Transition complete
+      ansible.builtin.debug:
+        msg: "SNO to 3-node HA transition completed successfully."

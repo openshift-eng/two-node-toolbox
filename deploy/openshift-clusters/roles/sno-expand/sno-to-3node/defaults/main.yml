@@ -1,0 +1,38 @@
+---
+# Cluster identity (auto-detected from cluster if not set)
+sno_cluster_name: ostest
+sno_cluster_domain: ""
+sno_infra_id: ""
+
+# Existing master-0 (auto-detected from cluster)
+sno_master0_ip: ""
+
+# New node IPs (static assignments within the dev-scripts DHCP range)
+sno_master1_ip: "192.168.111.21"
+sno_master2_ip: "192.168.111.22"
+
+# VM specs
+sno_vm_vcpus: 6
+sno_vm_ram_mb: 16384
+sno_vm_disk_gb: 50
+
+# Libvirt network (dev-scripts baremetal network)
+sno_libvirt_network: ostestbm
+sno_libvirt_bridge: ostestbm
+
+# RHCOS live ISO path on hypervisor (auto-detected from release image if empty)
+sno_rhcos_live_iso: ""
+
+# Timeouts
+sno_mco_timeout_minutes: 45
+sno_node_join_timeout_minutes: 20
+sno_etcd_timeout_minutes: 15
+
+# Auto-fix MCO drain deadlock during topology transition
+sno_auto_fix_drain: true
+
+# Paths (override if dev-scripts is in a non-standard location)
+sno_kubeconfig: ""
+
+# VM image directory
+sno_vm_image_dir: "/var/lib/libvirt/images"

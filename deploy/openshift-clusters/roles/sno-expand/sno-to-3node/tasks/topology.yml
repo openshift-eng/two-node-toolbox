@@ -1,0 +1,38 @@
+---
+- name: "[topology] Scale CVO to 0 replicas"
+  shell: |
+    oc scale deployment cluster-version-operator -n openshift-cluster-version --replicas=0
+  environment: "{{ sno_oc_env }}"
+
+- name: "[topology] Wait for CVO to scale down"
+  shell: |
+    oc get deployment cluster-version-operator -n openshift-cluster-version \
+      -o jsonpath='{.status.replicas}' 2>/dev/null || echo "0"
+  environment: "{{ sno_oc_env }}"
+  register: cvo_replicas
+  until: cvo_replicas.stdout | trim | int == 0
+  retries: 30
+  delay: 5
+  changed_when: false
+
+- name: "[topology] CVO scaled down"
+  debug:
+    msg: "CVO scaled to 0 replicas"
+
+- name: "[topology] Patch Infrastructure CR - topology to HighlyAvailable"
+  shell: |
+    oc patch infrastructure cluster --type merge --subresource status \
+      -p '{"status":{"controlPlaneTopology":"HighlyAvailable","infrastructureTopology":"HighlyAvailable"}}'
+  environment: "{{ sno_oc_env }}"
+
+- name: "[topology] Verify topology patch"
+  shell: |
+    oc get infrastructure cluster -o jsonpath='{.status.controlPlaneTopology}'
+  environment: "{{ sno_oc_env }}"
+  register: topo_verify
+  changed_when: false
+  failed_when: topo_verify.stdout != "HighlyAvailable"
+
+- name: "[topology] Topology transition complete"
+  debug:
+    msg: "Topology changed to HighlyAvailable. MCO rollout will begin."

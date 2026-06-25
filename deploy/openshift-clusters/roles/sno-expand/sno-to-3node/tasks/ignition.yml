@@ -1,0 +1,32 @@
+---
+- name: "[ignition] Extract MCS CA certificate"
+  shell: |
+    oc get configmap -n openshift-machine-config-operator machine-config-server-ca -o jsonpath='{.data.ca-bundle\.crt}'
+  environment: "{{ sno_oc_env }}"
+  register: mcs_ca_raw
+  changed_when: false
+
+- name: "[ignition] Base64-encode MCS CA"
+  set_fact:
+    sno_mcs_ca_b64: "{{ mcs_ca_raw.stdout | b64encode }}"
+
+- name: "[ignition] Generate master.ign from template"
+  template:
+    src: master.ign.j2
+    dest: /tmp/master.ign
+    mode: '0644'
+
+- name: "[ignition] Verify MCS reachability"
+  shell: |
+    curl -sk https://api-int.{{ sno_cluster_domain }}:22623/healthz
+  register: mcs_health
+  changed_when: false
+  failed_when: false
+
+- name: "[ignition] Display MCS status"
+  debug:
+    msg: "MCS healthz: {{ mcs_health.stdout | default('unreachable') }}"
+
+- name: "[ignition] Ignition config generated"
+  debug:
+    msg: "master.ign written to /tmp/master.ign for domain {{ sno_cluster_domain }}"

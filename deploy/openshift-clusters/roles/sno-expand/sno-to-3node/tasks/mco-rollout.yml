@@ -1,0 +1,77 @@
+---
+- name: "[mco] Display MCO rollout monitoring start"
+  debug:
+    msg: "Beginning MCO rollout monitoring (timeout: {{ sno_mco_timeout_minutes }} min)"
+
+- name: "[mco] Poll MCP master and auto-fix drain deadlock"
+  shell: |
+    MCP_JSON=$(oc get mcp master -o json 2>/dev/null) || {
+      echo "STATUS=api_unreachable"
+      echo "RESULT=pending"
+      exit 0
+    }
+
+    UPDATED=$(echo "$MCP_JSON" | python3 -c "
+    import json,sys
+    data=json.load(sys.stdin)
+    conds={c['type']:c['status'] for c in data.get('status',{}).get('conditions',[])}
+    print(conds.get('Updated','Unknown'))
+    ")
+    UPDATING=$(echo "$MCP_JSON" | python3 -c "
+    import json,sys
+    data=json.load(sys.stdin)
+    conds={c['type']:c['status'] for c in data.get('status',{}).get('conditions',[])}
+    print(conds.get('Updating','Unknown'))
+    ")
+    DEGRADED=$(echo "$MCP_JSON" | python3 -c "
+    import json,sys
+    data=json.load(sys.stdin)
+    conds={c['type']:c['status'] for c in data.get('status',{}).get('conditions',[])}
+    print(conds.get('Degraded','Unknown'))
+    ")
+
+    NODE_SCHED=$(oc get nodes --no-headers -o custom-columns=SCHED:.spec.unschedulable 2>/dev/null | head -1)
+
+    echo "STATUS=updated:${UPDATED},updating:${UPDATING},degraded:${DEGRADED},cordoned:${NODE_SCHED}"
+
+    if [ "$UPDATED" = "True" ] && [ "$UPDATING" = "False" ] && [ "$DEGRADED" = "False" ]; then
+      echo "RESULT=done"
+      exit 0
+    fi
+
+    # Auto-fix drain deadlock if node is cordoned and auto-fix is enabled
+    if [ "$NODE_SCHED" = "true" ] && [ "{{ sno_auto_fix_drain | default(true) | bool }}" = "True" ]; then
+      NODE_NAME=$(oc get nodes --no-headers -o custom-columns=NAME:.metadata.name | head -1)
+      echo "DRAIN_FIX: Node $NODE_NAME is cordoned, applying drain deadlock fix..."
+
+      # Uncordon
+      oc adm uncordon "$NODE_NAME" 2>&1 || true
+
+      # Set lastAppliedDrain annotation
+      DESIRED=$(oc get node "$NODE_NAME" -o jsonpath='{.metadata.annotations.machine\.openshift\.io/desired-drain}' 2>/dev/null || echo "")
+      if [ -n "$DESIRED" ]; then
+        oc annotate node "$NODE_NAME" "machine.openshift.io/last-applied-drain=$DESIRED" --overwrite 2>&1 || true
+        echo "DRAIN_FIX: Set lastAppliedDrain=$DESIRED"
+      fi
+
+      # Restart MCC pod
+      oc delete pod -n openshift-machine-config-operator -l k8s-app=machine-config-controller 2>&1 || true
+      echo "DRAIN_FIX: Restarted MCC pod"
+    fi
+
+    echo "RESULT=pending"
+  environment: "{{ sno_oc_env }}"
+  register: mcp_poll
+  until: "'RESULT=done' in mcp_poll.stdout"
+  retries: "{{ (sno_mco_timeout_minutes | int * 60 / 30) | int }}"
+  delay: 30
+  changed_when: false
+  failed_when: false
+
+- name: "[mco] MCO rollout result"
+  debug:
+    msg: >-
+      {{ 'MCO rollout completed successfully.'
+         if 'RESULT=done' in mcp_poll.stdout
+         else 'MCO rollout did not complete within timeout. Continuing anyway.' }}
+

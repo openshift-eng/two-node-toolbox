@@ -1,0 +1,75 @@
+---
+- name: "[dns] Get all node InternalIPs"
+  shell: |
+    oc get nodes -o json | python3 -c "
+    import json, sys
+    data = json.load(sys.stdin)
+    for node in data['items']:
+        for addr in node['status']['addresses']:
+            if addr['type'] == 'InternalIP':
+                print(addr['address'])
+    "
+  environment: "{{ sno_oc_env }}"
+  register: all_node_ips_raw
+  changed_when: false
+
+- name: "[dns] Store node IPs"
+  set_fact:
+    sno_all_node_ips: "{{ all_node_ips_raw.stdout_lines }}"
+
+- name: "[dns] Display node IPs for DNS"
+  debug:
+    msg: "Node IPs: {{ sno_all_node_ips | join(', ') }}"
+
+- name: "[dns] Build NM dnsmasq config"
+  set_fact:
+    sno_dnsmasq_lines: |
+      {% for ip in sno_all_node_ips %}
+      address=/api.{{ sno_cluster_domain }}/{{ ip }}
+      address=/api-int.{{ sno_cluster_domain }}/{{ ip }}
+      {% endfor %}
+      address=/.apps.{{ sno_cluster_domain }}/{{ sno_all_node_ips[0] }}
+
+- name: "[dns] Write NM dnsmasq config"
+  copy:
+    content: "{{ sno_dnsmasq_lines }}"
+    dest: "{{ sno_nm_dnsmasq_conf }}"
+    mode: '0644'
+  become: true
+
+- name: "[dns] Clean stale apps entries from /etc/hosts"
+  lineinfile:
+    path: /etc/hosts
+    regexp: "apps\\.{{ sno_cluster_domain | regex_escape() }}"
+    state: absent
+  become: true
+
+- name: "[dns] Restart NetworkManager to pick up dnsmasq changes"
+  systemd:
+    name: NetworkManager
+    state: restarted
+  become: true
+
+- name: "[dns] Wait for DNS to stabilize"
+  pause:
+    seconds: 5
+
+- name: "[dns] Verify API DNS resolution"
+  shell: |
+    dig +short api.{{ sno_cluster_domain }}
+  register: dns_api_verify
+  changed_when: false
+  failed_when: dns_api_verify.stdout | trim == ""
+
+- name: "[dns] Verify apps DNS resolution"
+  shell: |
+    dig +short test.apps.{{ sno_cluster_domain }}
+  register: dns_apps_verify
+  changed_when: false
+  failed_when: false
+
+- name: "[dns] DNS update complete"
+  debug:
+    msg: >-
+      API resolves to: {{ dns_api_verify.stdout_lines | join(', ') }}.
+      Apps resolves to: {{ dns_apps_verify.stdout_lines | default(['not yet']) | join(', ') }}.

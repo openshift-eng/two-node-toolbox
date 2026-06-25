@@ -1,0 +1,111 @@
+---
+- name: "[verify] Get node count and status"
+  shell: |
+    oc get nodes --no-headers
+  environment: "{{ sno_oc_env }}"
+  register: verify_nodes
+  changed_when: false
+
+- name: "[verify] Nodes"
+  debug:
+    msg: "{{ verify_nodes.stdout }}"
+
+- name: "[verify] Get topology"
+  shell: |
+    oc get infrastructure cluster -o jsonpath='{.status.controlPlaneTopology}'
+  environment: "{{ sno_oc_env }}"
+  register: verify_topo
+  changed_when: false
+
+- name: "[verify] Topology"
+  debug:
+    msg: "Control plane topology: {{ verify_topo.stdout }}"
+
+- name: "[verify] Get etcd member count"
+  shell: |
+    oc get pods -n openshift-etcd -l app=etcd --no-headers | wc -l
+  environment: "{{ sno_oc_env }}"
+  register: verify_etcd
+  changed_when: false
+
+- name: "[verify] etcd members"
+  debug:
+    msg: "etcd pods: {{ verify_etcd.stdout | trim }}"
+
+- name: "[verify] Get CVO replica count"
+  shell: |
+    oc get deployment cluster-version-operator -n openshift-cluster-version \
+      -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "unknown"
+  environment: "{{ sno_oc_env }}"
+  register: verify_cvo
+  changed_when: false
+
+- name: "[verify] CVO status"
+  debug:
+    msg: "CVO replicas: {{ verify_cvo.stdout }} (expected: 0 - CVO intentionally scaled down)"
+
+- name: "[verify] Get cluster operator summary"
+  shell: |
+    oc get co -o json | python3 -c "
+    import json, sys
+    data = json.load(sys.stdin)
+    total = len(data['items'])
+    degraded = []
+    unavailable = []
+    for co in data['items']:
+        name = co['metadata']['name']
+        conds = {c['type']: c['status'] for c in co.get('status', {}).get('conditions', [])}
+        if conds.get('Degraded') == 'True':
+            degraded.append(name)
+        if conds.get('Available') == 'False':
+            unavailable.append(name)
+    print(f'Total COs: {total}')
+    if degraded:
+        print(f'Degraded: {chr(44).join(degraded)}')
+    else:
+        print('Degraded: none')
+    if unavailable:
+        print(f'Unavailable: {chr(44).join(unavailable)}')
+    else:
+        print('Unavailable: none')
+    "
+  environment: "{{ sno_oc_env }}"
+  register: verify_co
+  changed_when: false
+
+- name: "[verify] Cluster operators"
+  debug:
+    msg: "{{ verify_co.stdout }}"
+
+- name: "[verify] Get MCP master status"
+  shell: |
+    oc get mcp master --no-headers
+  environment: "{{ sno_oc_env }}"
+  register: verify_mcp
+  changed_when: false
+
+- name: "[verify] MCP status"
+  debug:
+    msg: "{{ verify_mcp.stdout }}"
+
+- name: "[verify] Assert 3 nodes"
+  assert:
+    that: (verify_nodes.stdout_lines | length) >= 3
+    fail_msg: "Expected 3+ nodes, found {{ verify_nodes.stdout_lines | length }}"
+
+- name: "[verify] Assert HA topology"
+  assert:
+    that: verify_topo.stdout == "HighlyAvailable"
+    fail_msg: "Expected HighlyAvailable, got {{ verify_topo.stdout }}"
+
+- name: "[verify] Assert 3 etcd members"
+  assert:
+    that: verify_etcd.stdout | trim | int >= 3
+    fail_msg: "Expected 3+ etcd pods, found {{ verify_etcd.stdout | trim }}"
+
+- name: "[verify] SNO to 3-node transition verified successfully"
+  debug:
+    msg: >-
+      MIGRATION COMPLETE: {{ verify_nodes.stdout_lines | length }} nodes,
+      {{ verify_etcd.stdout | trim }} etcd members,
+      topology={{ verify_topo.stdout }}, CVO={{ verify_cvo.stdout }} replicas.

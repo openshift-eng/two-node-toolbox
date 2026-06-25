@@ -1,0 +1,160 @@
+---
+- name: "[create-vms] Cleanup stale VMs"
+  shell: |
+    sudo virsh destroy {{ item.name }} 2>/dev/null || true
+    sudo virsh undefine {{ item.name }} --remove-all-storage 2>/dev/null || true
+    sudo rm -f {{ sno_vm_image_dir }}/{{ item.name }}.qcow2
+  loop: "{{ sno_new_nodes }}"
+  failed_when: false
+  changed_when: true
+
+- name: "[create-vms] Remove stale DHCP entries from libvirt network"
+  shell: |
+    NET_XML=$(sudo virsh net-dumpxml {{ sno_libvirt_network }})
+    EXISTING_MAC=$(echo "$NET_XML" | python3 -c "
+    import xml.etree.ElementTree as ET, sys
+    root = ET.parse(sys.stdin).getroot()
+    for host in root.findall('.//dhcp/host'):
+        if host.get('ip') == '{{ item.ip }}':
+            print(host.get('mac',''))
+    " 2>/dev/null || true)
+
+    if [ -n "$EXISTING_MAC" ]; then
+      sudo virsh net-update {{ sno_libvirt_network }} delete ip-dhcp-host \
+        "<host mac='${EXISTING_MAC}' ip='{{ item.ip }}'/>" --live --config 2>/dev/null || true
+    fi
+
+    sudo virsh net-update {{ sno_libvirt_network }} delete dns-host \
+      "<host ip='{{ item.ip }}'><hostname>{{ item.hostname }}.{{ sno_cluster_domain }}</hostname></host>" \
+      --live --config 2>/dev/null || true
+    sudo virsh net-update {{ sno_libvirt_network }} delete dns-host \
+      "<host ip='{{ item.ip }}'><hostname>{{ item.hostname }}</hostname></host>" \
+      --live --config 2>/dev/null || true
+  loop: "{{ sno_new_nodes }}"
+  failed_when: false
+  changed_when: true
+
+- name: "[create-vms] Clean stale entries from addnhosts"
+  lineinfile:
+    path: "{{ sno_addnhosts_path }}"
+    regexp: "^{{ item.ip }}\\s"
+    state: absent
+  loop: "{{ sno_new_nodes }}"
+  become: true
+  failed_when: false
+
+- name: "[create-vms] Also clean stale hostname entries from addnhosts"
+  lineinfile:
+    path: "{{ sno_addnhosts_path }}"
+    regexp: "\\s{{ item.hostname }}\\.{{ sno_cluster_domain }}(\\s|$)"
+    state: absent
+  loop: "{{ sno_new_nodes }}"
+  become: true
+  failed_when: false
+
+- name: "[create-vms] Flush stale DHCP leases"
+  shell: |
+    python3 -c "
+    import json, os
+    lf = '{{ sno_lease_file }}'
+    if not os.path.exists(lf):
+        print('Lease file does not exist, skipping')
+        exit(0)
+    if os.path.getsize(lf) == 0:
+        print('Lease file is empty, skipping')
+        exit(0)
+    with open(lf) as f:
+        leases = json.load(f)
+    reserved = {{ [sno_master1_ip, sno_master2_ip] | to_json }}
+    before = len(leases)
+    leases = [l for l in leases if l.get('ip-address') not in reserved]
+    after = len(leases)
+    with open(lf, 'w') as f:
+        json.dump(leases, f, indent=2)
+    print(f'Flushed {before - after} stale leases')
+    "
+  become: true
+  changed_when: true
+  failed_when: false
+
+- name: "[create-vms] Generate random MAC addresses"
+  shell: |
+    printf '52:54:00:%02x:%02x:%02x\n' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256))
+  register: mac_gen
+  loop: "{{ sno_new_nodes }}"
+  changed_when: false
+
+- name: "[create-vms] Store MAC addresses"
+  set_fact:
+    sno_node_macs: "{{ sno_node_macs | default({}) | combine({item.item.hostname: item.stdout | trim}) }}"
+  loop: "{{ mac_gen.results }}"
+
+- name: "[create-vms] Display VM details"
+  debug:
+    msg: "{{ item.hostname }}: IP={{ item.ip }}, MAC={{ sno_node_macs[item.hostname] }}"
+  loop: "{{ sno_new_nodes }}"
+
+- name: "[create-vms] Create VM disk images"
+  shell: |
+    sudo qemu-img create -f qcow2 {{ sno_vm_image_dir }}/{{ item.name }}.qcow2 {{ sno_vm_disk_gb }}G
+  args:
+    creates: "{{ sno_vm_image_dir }}/{{ item.name }}.qcow2"
+  loop: "{{ sno_new_nodes }}"
+
+- name: "[create-vms] Define VMs"
+  shell: |
+    sudo virt-install \
+      --name {{ item.name }} \
+      --ram {{ sno_vm_ram_mb }} \
+      --vcpus {{ sno_vm_vcpus }} \
+      --disk {{ sno_vm_image_dir }}/{{ item.name }}.qcow2,bus=virtio \
+      --network network={{ sno_libvirt_network }},model=virtio,mac={{ sno_node_macs[item.hostname] }} \
+      --os-variant rhel9.0 \
+      --graphics none \
+      --noautoconsole \
+      --boot hd \
+      --noreboot \
+      --import \
+      --print-xml | sudo virsh define /dev/stdin
+  loop: "{{ sno_new_nodes }}"
+
+- name: "[create-vms] Add DHCP reservations to libvirt network"
+  shell: |
+    sudo virsh net-update {{ sno_libvirt_network }} add ip-dhcp-host \
+      "<host mac='{{ sno_node_macs[item.hostname] }}' name='{{ item.hostname }}' ip='{{ item.ip }}'/>" \
+      --live --config
+  loop: "{{ sno_new_nodes }}"
+
+- name: "[create-vms] Add DNS entries to libvirt network"
+  shell: |
+    sudo virsh net-update {{ sno_libvirt_network }} add dns-host \
+      "<host ip='{{ item.ip }}'><hostname>{{ item.hostname }}.{{ sno_cluster_domain }}</hostname></host>" \
+      --live --config
+  loop: "{{ sno_new_nodes }}"
+  failed_when: false
+
+- name: "[create-vms] Add entries to addnhosts"
+  lineinfile:
+    path: "{{ sno_addnhosts_path }}"
+    line: "{{ item.ip }} {{ item.hostname }}.{{ sno_cluster_domain }} {{ item.hostname }}"
+    regexp: "^{{ item.ip }}\\s"
+    state: present
+  loop: "{{ sno_new_nodes }}"
+  become: true
+
+- name: "[create-vms] Reload libvirt dnsmasq"
+  shell: |
+    sudo kill -HUP $(cat /run/libvirt/network/{{ sno_libvirt_bridge }}.pid) 2>/dev/null || true
+  changed_when: true
+
+- name: "[create-vms] Verify DNS for new nodes"
+  shell: |
+    dig +short {{ item.hostname }}.{{ sno_cluster_domain }} @192.168.111.1
+  register: dns_verify
+  changed_when: false
+  failed_when: dns_verify.stdout | trim == ""
+  loop: "{{ sno_new_nodes }}"
+
+- name: "[create-vms] VMs created and DNS configured"
+  debug:
+    msg: "{{ sno_new_nodes | length }} VMs created with DNS entries."
