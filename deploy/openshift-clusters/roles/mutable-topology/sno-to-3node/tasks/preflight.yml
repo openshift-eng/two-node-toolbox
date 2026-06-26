@@ -126,12 +126,21 @@
   changed_when: false
   failed_when: false
 
-- name: "[preflight] Add api-int to addnhosts if missing"
+- name: "[preflight] Add api-int to libvirt network DNS"
+  # Using virsh net-update (not lineinfile) so that api-int survives addnhosts
+  # regeneration when create-vms.yml calls virsh net-update for master-1/2.
+  # libvirt regenerates ostestbm.addnhosts from the network XML on every net-update.
   shell: |
-    echo "{{ sno_master0_ip }} api-int.{{ sno_cluster_domain }} api-int" | \
-      sudo tee -a {{ sno_addnhosts_path }}
-    sudo kill -HUP $(cat /run/libvirt/network/{{ sno_libvirt_bridge }}.pid) 2>/dev/null || true
+    # Remove any stale api-int entry (idempotent, ignore errors)
+    sudo virsh net-update {{ sno_libvirt_network }} delete dns-host \
+      "<host ip='{{ sno_master0_ip }}'><hostname>api-int.{{ sno_cluster_domain }}</hostname></host>" \
+      --live --config 2>/dev/null || true
+    # Add the correct entry - triggers addnhosts regeneration with api-int included
+    sudo virsh net-update {{ sno_libvirt_network }} add dns-host \
+      "<host ip='{{ sno_master0_ip }}'><hostname>api-int.{{ sno_cluster_domain }}</hostname></host>" \
+      --live --config
   when: dns_apiint.stdout | trim == "" or sno_master0_ip not in dns_apiint.stdout
+  changed_when: true
 
 - name: "[preflight] Verify api-int DNS after fix"
   shell: |
@@ -139,6 +148,9 @@
   register: dns_apiint_verify
   changed_when: false
   failed_when: dns_apiint_verify.stdout | trim == ""
+  retries: 3
+  delay: 2
+  until: dns_apiint_verify.stdout | trim != ""
   when: dns_apiint.stdout | trim == "" or sno_master0_ip not in dns_apiint.stdout
 
 - name: "[preflight] Preflight checks passed"

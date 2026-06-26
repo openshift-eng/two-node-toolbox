@@ -18,4 +18,4 @@ if [[ ! -f "${DEPLOY_DIR}/openshift-clusters/inventory.ini" ]]; then
 fi
 
 cd "${DEPLOY_DIR}/openshift-clusters"
-ansible-playbook sno-to-3node.yml -e "interactive_mode=false" -i inventory.ini "$@"
+ansible-playbook clean-mutable-topology.yml -e "interactive_mode=false" -i inventory.ini "$@"

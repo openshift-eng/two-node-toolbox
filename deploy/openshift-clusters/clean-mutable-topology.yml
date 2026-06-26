@@ -1,0 +1,43 @@
+---
+- hosts: metal_machine
+  gather_facts: yes
+
+  pre_tasks:
+    - name: Confirm mutable topology cleanup
+      ansible.builtin.pause:
+        prompt: >-
+          This will destroy the master-1 and master-2 VMs, their disks, DHCP reservations,
+          and DNS entries. master-0 (if still present) will be unaffected.
+          Press Enter to proceed or Ctrl+C to abort.
+      delegate_to: localhost
+      run_once: true
+      when: interactive_mode | default(true) | bool
+
+    - name: Detect cluster domain from kubeconfig (best-effort)
+      shell: |
+        KUBECONFIG={{ dev_scripts_path | default('openshift-metal3/dev-scripts') }}/ocp/{{ sno_cluster_name | default('ostest') }}/auth/kubeconfig \
+          oc get infrastructure cluster -o jsonpath='{.status.apiServerInternalURI}' 2>/dev/null \
+          | sed 's|^https://api-int\.||; s|:6443$||'
+      register: detected_domain
+      changed_when: false
+      failed_when: false
+      ignore_errors: true
+
+    - name: Set cluster domain (use detected, variable override, or default)
+      set_fact:
+        sno_cluster_domain: >-
+          {{ sno_cluster_domain
+             if (sno_cluster_domain is defined and sno_cluster_domain)
+             else (detected_domain.stdout | trim
+                   if (detected_domain.stdout is defined and detected_domain.stdout | trim)
+                   else 'ostest.test.metalkube.org') }}
+
+  tasks:
+    - name: Run mutable topology cleanup
+      import_role:
+        name: mutable-topology/sno-to-3node
+        tasks_from: clean.yml
+
+    - name: Cleanup complete
+      ansible.builtin.debug:
+        msg: "Mutable topology cleanup complete. master-1 and master-2 VMs have been removed."

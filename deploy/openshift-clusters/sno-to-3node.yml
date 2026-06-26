@@ -15,7 +15,7 @@
       when: interactive_mode | default(true) | bool
 
   roles:
-    - sno-expand/sno-to-3node
+    - mutable-topology/sno-to-3node
 
   tasks:
     - name: Transition complete

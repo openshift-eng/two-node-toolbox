@@ -1,0 +1,124 @@
+---
+- name: "[clean] Stop and undefine new VMs"
+  shell: |
+    sudo virsh destroy {{ item.name }} 2>/dev/null || true
+    sudo virsh undefine {{ item.name }} --remove-all-storage 2>/dev/null || true
+  loop: "{{ sno_new_nodes }}"
+  failed_when: false
+  changed_when: true
+
+- name: "[clean] Remove disk images"
+  file:
+    path: "{{ sno_vm_image_dir }}/{{ item.name }}.qcow2"
+    state: absent
+  loop: "{{ sno_new_nodes }}"
+  become: true
+  failed_when: false
+
+- name: "[clean] Remove NVRAM files"
+  file:
+    path: "/var/lib/libvirt/qemu/nvram/{{ item.name }}_VARS.fd"
+    state: absent
+  loop: "{{ sno_new_nodes }}"
+  become: true
+  failed_when: false
+
+- name: "[clean] Remove per-node RHCOS ISOs"
+  file:
+    path: "/var/lib/libvirt/images/rhcos-{{ item.hostname }}.iso"
+    state: absent
+  loop: "{{ sno_new_nodes }}"
+  become: true
+  failed_when: false
+
+- name: "[clean] Remove DHCP reservations from libvirt network"
+  shell: |
+    NET_XML=$(sudo virsh net-dumpxml {{ sno_libvirt_network }} 2>/dev/null || true)
+    EXISTING_MAC=$(echo "$NET_XML" | python3 -c "
+    import xml.etree.ElementTree as ET, sys
+    root = ET.parse(sys.stdin).getroot()
+    for host in root.findall('.//dhcp/host'):
+        if host.get('ip') == '{{ item.ip }}':
+            print(host.get('mac',''))
+    " 2>/dev/null || true)
+
+    if [ -n "$EXISTING_MAC" ]; then
+      sudo virsh net-update {{ sno_libvirt_network }} delete ip-dhcp-host \
+        "<host mac='${EXISTING_MAC}' ip='{{ item.ip }}'/>" --live --config 2>/dev/null || true
+      echo "Removed DHCP reservation for {{ item.ip }} (mac=${EXISTING_MAC})"
+    else
+      echo "No DHCP reservation found for {{ item.ip }}"
+    fi
+  loop: "{{ sno_new_nodes }}"
+  failed_when: false
+  changed_when: true
+
+- name: "[clean] Remove DNS host entries from libvirt network"
+  shell: |
+    sudo virsh net-update {{ sno_libvirt_network }} delete dns-host \
+      "<host ip='{{ item.ip }}'><hostname>{{ item.hostname }}.{{ sno_cluster_domain }}</hostname></host>" \
+      --live --config 2>/dev/null || true
+    sudo virsh net-update {{ sno_libvirt_network }} delete dns-host \
+      "<host ip='{{ item.ip }}'><hostname>{{ item.hostname }}</hostname></host>" \
+      --live --config 2>/dev/null || true
+  loop: "{{ sno_new_nodes }}"
+  failed_when: false
+  changed_when: true
+
+- name: "[clean] Remove api-int from libvirt network DNS"
+  shell: |
+    sudo virsh net-update {{ sno_libvirt_network }} delete dns-host \
+      "<host ip='{{ sno_master0_ip }}'><hostname>api-int.{{ sno_cluster_domain }}</hostname></host>" \
+      --live --config 2>/dev/null || true
+  failed_when: false
+  changed_when: true
+
+- name: "[clean] Remove entries from addnhosts"
+  lineinfile:
+    path: "{{ sno_addnhosts_path }}"
+    regexp: "^{{ item.ip }}\\s"
+    state: absent
+  loop: "{{ sno_new_nodes }}"
+  become: true
+  failed_when: false
+
+- name: "[clean] Remove hostname entries from addnhosts"
+  lineinfile:
+    path: "{{ sno_addnhosts_path }}"
+    regexp: "\\s{{ item.hostname }}\\.{{ sno_cluster_domain }}(\\s|$)"
+    state: absent
+  loop: "{{ sno_new_nodes }}"
+  become: true
+  failed_when: false
+
+- name: "[clean] Flush DHCP leases for new node IPs"
+  shell: |
+    python3 -c "
+    import json, os
+    lf = '{{ sno_lease_file }}'
+    if not os.path.exists(lf) or os.path.getsize(lf) == 0:
+        exit(0)
+    with open(lf) as f:
+        leases = json.load(f)
+    reserved = {{ [sno_master1_ip, sno_master2_ip] | to_json }}
+    before = len(leases)
+    leases = [l for l in leases if l.get('ip-address') not in reserved]
+    with open(lf, 'w') as f:
+        json.dump(leases, f, indent=2)
+    print(f'Flushed {before - len(leases)} leases')
+    "
+  become: true
+  failed_when: false
+  changed_when: true
+
+- name: "[clean] Reload libvirt dnsmasq"
+  shell: |
+    sudo kill -HUP $(cat /run/libvirt/network/{{ sno_libvirt_bridge }}.pid) 2>/dev/null || true
+  changed_when: true
+  failed_when: false
+
+- name: "[clean] Cleanup complete"
+  debug:
+    msg: >-
+      Removed VMs: {{ sno_new_nodes | map(attribute='name') | list | join(', ') }}.
+      Disk images, NVRAM, ISOs, DHCP reservations, and DNS entries removed.

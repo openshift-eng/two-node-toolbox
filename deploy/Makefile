@@ -66,6 +66,9 @@ full-clean:
 clean-spoke:
 	@./openshift-clusters/scripts/clean-spoke.sh
 
+clean-mutable-topology:
+	@./openshift-clusters/scripts/clean-mutable-topology.sh
+
 ssh:
 	@./aws-hypervisor/scripts/ssh.sh
 
@@ -196,6 +199,7 @@ help:
 	@echo "  clean                - Clean OpenShift cluster using dev-scripts clean target"
 	@echo "  full-clean           - Fully clean instance cache and OpenShift cluster using dev-scripts realclean target"
 	@echo "  clean-spoke          - Clean spoke cluster resources (VMs, network, auth) from assisted installer"
+	@echo "  clean-mutable-topology - Remove master-1/2 VMs, disks, DHCP/DNS entries (sno-to-3node cleanup)"
 	@echo "  patch-nodes          - Build resource-agents RPM and patch cluster nodes (default version: 4.11)"
 	@echo ""
 	@echo "Baremetal Adoption:"

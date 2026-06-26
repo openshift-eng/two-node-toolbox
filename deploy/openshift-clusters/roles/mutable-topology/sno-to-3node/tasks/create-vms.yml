@@ -112,7 +112,9 @@
       --os-variant rhel9.0 \
       --graphics none \
       --noautoconsole \
+      --boot loader=/usr/share/edk2/ovmf/OVMF_CODE.fd,loader_ro=yes,loader_type=pflash,nvram_template=/usr/share/edk2/ovmf/OVMF_VARS.fd,loader_secure=no \
       --boot hd \
+      --tpm none \
       --noreboot \
       --import \
       --print-xml | sudo virsh define /dev/stdin

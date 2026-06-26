@@ -30,32 +30,37 @@
     print(conds.get('Degraded','Unknown'))
     ")
 
-    NODE_SCHED=$(oc get nodes --no-headers -o custom-columns=SCHED:.spec.unschedulable 2>/dev/null | head -1)
+    CORDONED_NODES=$(oc get nodes --no-headers 2>/dev/null | grep SchedulingDisabled | awk '{print $1}' || true)
 
-    echo "STATUS=updated:${UPDATED},updating:${UPDATING},degraded:${DEGRADED},cordoned:${NODE_SCHED}"
+    echo "STATUS=updated:${UPDATED},updating:${UPDATING},degraded:${DEGRADED},cordoned:${CORDONED_NODES:-none}"
 
     if [ "$UPDATED" = "True" ] && [ "$UPDATING" = "False" ] && [ "$DEGRADED" = "False" ]; then
       echo "RESULT=done"
       exit 0
     fi
 
-    # Auto-fix drain deadlock if node is cordoned and auto-fix is enabled
-    if [ "$NODE_SCHED" = "true" ] && [ "{{ sno_auto_fix_drain | default(true) | bool }}" = "True" ]; then
-      NODE_NAME=$(oc get nodes --no-headers -o custom-columns=NAME:.metadata.name | head -1)
-      echo "DRAIN_FIX: Node $NODE_NAME is cordoned, applying drain deadlock fix..."
+    # Auto-fix drain deadlock for any cordoned node.
+    # On SNO→3node, MCD cordons a node before draining. If MCC cannot reach
+    # the node (api-int flap, RBAC timing) the drain annotation never advances
+    # and the node stays cordoned forever. Fix: uncordon, set lastAppliedDrain
+    # to the drain-<desired> value MCC is waiting for, restart MCC.
+    if [ -n "$CORDONED_NODES" ] && [ "{{ sno_auto_fix_drain | default(true) | bool }}" = "True" ]; then
+      DESIRED=$(oc get mcp master -o jsonpath='{.spec.configuration.name}' 2>/dev/null || echo "")
+      for NODE_NAME in $CORDONED_NODES; do
+        echo "DRAIN_FIX: Fixing drain deadlock on $NODE_NAME (desired=${DESIRED})..."
 
-      # Uncordon
-      oc adm uncordon "$NODE_NAME" 2>&1 || true
+        oc adm uncordon "$NODE_NAME" 2>&1 || true
 
-      # Set lastAppliedDrain annotation
-      DESIRED=$(oc get node "$NODE_NAME" -o jsonpath='{.metadata.annotations.machine\.openshift\.io/desired-drain}' 2>/dev/null || echo "")
-      if [ -n "$DESIRED" ]; then
-        oc annotate node "$NODE_NAME" "machine.openshift.io/last-applied-drain=$DESIRED" --overwrite 2>&1 || true
-        echo "DRAIN_FIX: Set lastAppliedDrain=$DESIRED"
-      fi
+        if [ -n "$DESIRED" ]; then
+          oc annotate node "$NODE_NAME" \
+            "machineconfiguration.openshift.io/lastAppliedDrain=drain-${DESIRED}" \
+            --overwrite 2>&1 || true
+          echo "DRAIN_FIX: Set lastAppliedDrain=drain-${DESIRED} on $NODE_NAME"
+        fi
+      done
 
-      # Restart MCC pod
-      oc delete pod -n openshift-machine-config-operator -l k8s-app=machine-config-controller 2>&1 || true
+      oc delete pod -n openshift-machine-config-operator \
+        -l k8s-app=machine-config-controller 2>&1 || true
       echo "DRAIN_FIX: Restarted MCC pod"
     fi
 

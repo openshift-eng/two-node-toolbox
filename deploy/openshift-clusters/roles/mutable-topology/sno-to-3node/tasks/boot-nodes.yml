@@ -67,10 +67,12 @@
       --os-variant rhel9.0 \
       --graphics none \
       --noautoconsole \
-      --boot hd,cdrom
+      --boot loader=/usr/share/edk2/ovmf/OVMF_CODE.fd,loader_ro=yes,loader_type=pflash,nvram_template=/usr/share/edk2/ovmf/OVMF_VARS.fd,loader_secure=no \
+      --boot hd,cdrom \
+      --tpm none
   loop: "{{ sno_new_nodes }}"
 
-- name: "[boot] Verify VMs are running"
+- name: "[boot] Verify VMs are running (initial install boot)"
   shell: |
     sudo virsh domstate {{ item.name }}
   register: vm_state
@@ -78,17 +80,52 @@
   changed_when: false
   failed_when: "'running' not in vm_state.stdout"
 
-- name: "[boot] Set on_reboot to restart (not destroy)"
+- name: "[boot] Wait for coreos-installer to complete (VM will power off)"
+  # coreos-installer runs ExecStartPost=systemctl reboot, but RHCOS live issues
+  # an ACPI poweroff rather than a reset. libvirt fires on_poweroff=destroy so
+  # the VM shuts off. We poll until shut off, then boot from disk below.
   shell: |
-    sudo virsh dumpxml {{ item.name }} | grep -q '<on_reboot>destroy</on_reboot>' && \
-      sudo virt-xml {{ item.name }} --edit --events on_reboot=restart 2>/dev/null || true
+    for i in $(seq 50); do
+      STATE=$(sudo virsh domstate {{ item.name }} 2>/dev/null || echo "unknown")
+      if echo "$STATE" | grep -q "shut off"; then
+        echo "{{ item.name }} shut off after $((i * 20))s - install complete"
+        exit 0
+      fi
+      sleep 20
+    done
+    echo "Timeout: {{ item.name }} did not shut off within 1000s"
+    exit 1
   loop: "{{ sno_new_nodes }}"
-  failed_when: false
+  changed_when: false
+
+- name: "[boot] Remove CDROM from boot order after install"
+  # Prevent coreos-installer loop: strip the cdrom boot entry so UEFI only
+  # tries the hard disk on subsequent boots.
+  shell: |
+    TMPXML=$(mktemp /tmp/vm-XXXXXX.xml)
+    sudo virsh dumpxml {{ item.name }} > "$TMPXML"
+    sudo sed -i "/<boot dev='cdrom'\/>/d" "$TMPXML"
+    sudo virsh define "$TMPXML"
+    sudo rm -f "$TMPXML"
+  loop: "{{ sno_new_nodes }}"
   changed_when: true
+
+- name: "[boot] Start VMs to boot from installed RHCOS"
+  shell: |
+    sudo virsh start {{ item.name }}
+  loop: "{{ sno_new_nodes }}"
+  changed_when: true
+
+- name: "[boot] Verify VMs are running from installed disk"
+  shell: |
+    sudo virsh domstate {{ item.name }}
+  register: vm_state_disk
+  loop: "{{ sno_new_nodes }}"
+  changed_when: false
+  failed_when: "'running' not in vm_state_disk.stdout"
 
 - name: "[boot] VMs booted with RHCOS"
   debug:
     msg: >-
-      {{ sno_new_nodes | length }} VMs booted with RHCOS ISO (ignition embedded).
-      coreos-installer will write to disk and reboot automatically.
+      {{ sno_new_nodes | length }} VMs installed and started from disk.
       Waiting for nodes to join the cluster...
