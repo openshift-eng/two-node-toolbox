@@ -1,5 +1,7 @@
 ---
-# Cluster identity (auto-detected from cluster if not set)
+# Cluster identity — sno_cluster_domain and sno_master0_ip are auto-detected
+# from the cluster at runtime; sno_cluster_name is a static default used for
+# kubeconfig path and VM naming (override with -e sno_cluster_name=... if needed)
 sno_cluster_name: ostest
 sno_cluster_domain: ""
 sno_infra_id: ""

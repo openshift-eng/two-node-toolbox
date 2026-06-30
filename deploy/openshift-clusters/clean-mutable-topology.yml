@@ -32,6 +32,26 @@
                    if (detected_domain.stdout is defined and detected_domain.stdout | trim)
                    else 'ostest.test.metalkube.org') }}
 
+    - name: Check live cluster topology
+      shell: |
+        KUBECONFIG={{ dev_scripts_path | default('openshift-metal3/dev-scripts') }}/ocp/{{ sno_cluster_name | default('ostest') }}/auth/kubeconfig \
+          oc get infrastructure cluster \
+          -o jsonpath='{.status.controlPlaneTopology}' 2>/dev/null || echo "Unknown"
+      register: live_topology
+      changed_when: false
+      failed_when: false
+      ignore_errors: true
+
+    - name: Abort if cluster is HA and force_cleanup is not set
+      ansible.builtin.fail:
+        msg: >-
+          Cluster controlPlaneTopology is '{{ live_topology.stdout | trim }}'.
+          Refusing to remove master-1 and master-2 from a live HA cluster.
+          Re-run with -e "force_cleanup=true" to override.
+      when:
+        - live_topology.stdout | trim == "HighlyAvailable"
+        - not (force_cleanup | default(false) | bool)
+
   tasks:
     - name: Run mutable topology cleanup
       import_role:

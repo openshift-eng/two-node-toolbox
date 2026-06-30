@@ -130,11 +130,24 @@
   # Using virsh net-update (not lineinfile) so that api-int survives addnhosts
   # regeneration when create-vms.yml calls virsh net-update for master-1/2.
   # libvirt regenerates ostestbm.addnhosts from the network XML on every net-update.
+  # Delete by FQDN regardless of current IP so a stale VIP entry (e.g. left by a
+  # previous partial run) doesn't cause the subsequent add to fail.
   shell: |
-    # Remove any stale api-int entry (idempotent, ignore errors)
-    sudo virsh net-update {{ sno_libvirt_network }} delete dns-host \
-      "<host ip='{{ sno_master0_ip }}'><hostname>api-int.{{ sno_cluster_domain }}</hostname></host>" \
-      --live --config 2>/dev/null || true
+    CURRENT_IP=$(sudo virsh net-dumpxml {{ sno_libvirt_network }} | python3 -c "
+import xml.etree.ElementTree as ET, sys
+root = ET.parse(sys.stdin).getroot()
+for h in root.findall('.//dns/host'):
+    for hn in h.findall('hostname'):
+        if hn.text == 'api-int.{{ sno_cluster_domain }}':
+            print(h.get('ip', ''))
+" 2>/dev/null || true)
+
+    if [ -n "$CURRENT_IP" ]; then
+      sudo virsh net-update {{ sno_libvirt_network }} delete dns-host \
+        "<host ip='${CURRENT_IP}'><hostname>api-int.{{ sno_cluster_domain }}</hostname></host>" \
+        --live --config 2>/dev/null || true
+    fi
+
     # Add the correct entry - triggers addnhosts regeneration with api-int included
     sudo virsh net-update {{ sno_libvirt_network }} add dns-host \
       "<host ip='{{ sno_master0_ip }}'><hostname>api-int.{{ sno_cluster_domain }}</hostname></host>" \
@@ -147,10 +160,10 @@
     dig +short api-int.{{ sno_cluster_domain }} @192.168.111.1
   register: dns_apiint_verify
   changed_when: false
-  failed_when: dns_apiint_verify.stdout | trim == ""
+  failed_when: sno_master0_ip not in dns_apiint_verify.stdout
   retries: 3
   delay: 2
-  until: dns_apiint_verify.stdout | trim != ""
+  until: sno_master0_ip in dns_apiint_verify.stdout
   when: dns_apiint.stdout | trim == "" or sno_master0_ip not in dns_apiint.stdout
 
 - name: "[preflight] Preflight checks passed"
