@@ -78,7 +78,7 @@
     MAC="{{ sno_node_macs[item.hostname] }}"
 
     sudo virsh destroy "$VM_NAME" 2>/dev/null || true
-    sudo virsh undefine "$VM_NAME" 2>/dev/null || true
+    sudo virsh undefine "$VM_NAME" --nvram 2>/dev/null || true
 
     sudo virt-install \
       --name "$VM_NAME" \

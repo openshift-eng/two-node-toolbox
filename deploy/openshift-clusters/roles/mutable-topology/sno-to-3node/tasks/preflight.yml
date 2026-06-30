@@ -134,13 +134,13 @@
   # previous partial run) doesn't cause the subsequent add to fail.
   shell: |
     CURRENT_IP=$(sudo virsh net-dumpxml {{ sno_libvirt_network }} | python3 -c "
-import xml.etree.ElementTree as ET, sys
-root = ET.parse(sys.stdin).getroot()
-for h in root.findall('.//dns/host'):
-    for hn in h.findall('hostname'):
-        if hn.text == 'api-int.{{ sno_cluster_domain }}':
-            print(h.get('ip', ''))
-" 2>/dev/null || true)
+    import xml.etree.ElementTree as ET, sys
+    root = ET.parse(sys.stdin).getroot()
+    for h in root.findall('.//dns/host'):
+        for hn in h.findall('hostname'):
+            if hn.text == 'api-int.{{ sno_cluster_domain }}':
+                print(h.get('ip', ''))
+    " 2>/dev/null || true)
 
     if [ -n "$CURRENT_IP" ]; then
       sudo virsh net-update {{ sno_libvirt_network }} delete dns-host \

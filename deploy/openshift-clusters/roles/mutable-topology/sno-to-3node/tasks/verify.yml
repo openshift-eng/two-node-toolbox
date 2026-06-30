@@ -93,6 +93,11 @@
     that: (verify_nodes.stdout_lines | length) >= 3
     fail_msg: "Expected 3+ nodes, found {{ verify_nodes.stdout_lines | length }}"
 
+- name: "[verify] Assert all nodes Ready"
+  assert:
+    that: "'NotReady' not in verify_nodes.stdout"
+    fail_msg: "One or more nodes are NotReady:\n{{ verify_nodes.stdout }}"
+
 - name: "[verify] Assert HA topology"
   assert:
     that: verify_topo.stdout == "HighlyAvailable"

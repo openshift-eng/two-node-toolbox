@@ -1,7 +1,8 @@
 ---
 - name: "[ignition] Extract MCS CA certificate"
   shell: |
-    oc get configmap -n openshift-machine-config-operator machine-config-server-ca -o jsonpath='{.data.ca-bundle\.crt}'
+    oc get configmap -n openshift-machine-config-operator machine-config-server-ca \
+      -o jsonpath='{.data.ca-bundle\.crt}' --request-timeout=30s
   environment: "{{ sno_oc_env }}"
   register: mcs_ca_raw
   changed_when: false
@@ -18,7 +19,7 @@
 
 - name: "[ignition] Verify MCS reachability"
   shell: |
-    curl -sk https://api-int.{{ sno_cluster_domain }}:22623/healthz
+    curl -sk --max-time 10 https://api-int.{{ sno_cluster_domain }}:22623/healthz
   register: mcs_health
   changed_when: false
   failed_when: false

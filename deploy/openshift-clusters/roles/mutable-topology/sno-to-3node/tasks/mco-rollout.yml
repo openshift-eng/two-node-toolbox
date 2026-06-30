@@ -39,15 +39,31 @@
       exit 0
     fi
 
-    # Auto-fix drain deadlock for any cordoned node.
-    # On SNO→3node, MCD cordons a node before draining. If MCC cannot reach
-    # the node (api-int flap, RBAC timing) the drain annotation never advances
-    # and the node stays cordoned forever. Fix: uncordon, set lastAppliedDrain
-    # to the drain-<desired> value MCC is waiting for, restart MCC.
-    if [ -n "$CORDONED_NODES" ] && [ "{{ sno_auto_fix_drain | default(true) | bool }}" = "True" ]; then
+    # Auto-fix MCO drain deadlock for nodes with a stale drain annotation.
+    # Only fires when ALL of:
+    #   1. sno_auto_fix_drain is enabled
+    #   2. The node is cordoned (SchedulingDisabled)
+    #   3. MCO owns the cordon: desiredDrain starts with "drain-"
+    #   4. The drain is actually stuck: desiredDrain != lastAppliedDrain
+    # This avoids touching nodes cordoned manually or mid-drain legitimately.
+    if [ -n "$CORDONED_NODES" ] && [ "{{ sno_auto_fix_drain | default(false) | bool }}" = "True" ]; then
       DESIRED=$(oc get mcp master -o jsonpath='{.spec.configuration.name}' 2>/dev/null || echo "")
+      MCC_RESTARTED=0
       for NODE_NAME in $CORDONED_NODES; do
-        echo "DRAIN_FIX: Fixing drain deadlock on $NODE_NAME (desired=${DESIRED})..."
+        DESIRED_DRAIN=$(oc get node "$NODE_NAME" \
+          -o jsonpath='{.metadata.annotations.machineconfiguration\.openshift\.io/desiredDrain}' \
+          2>/dev/null || true)
+        LAST_DRAIN=$(oc get node "$NODE_NAME" \
+          -o jsonpath='{.metadata.annotations.machineconfiguration\.openshift\.io/lastAppliedDrain}' \
+          2>/dev/null || true)
+
+        # Skip if this is not an MCO-managed drain or drain is already advancing
+        if ! echo "$DESIRED_DRAIN" | grep -q "^drain-" || [ "$DESIRED_DRAIN" = "$LAST_DRAIN" ]; then
+          echo "DRAIN_FIX: $NODE_NAME cordoned but not a stale MCO drain (desired=${DESIRED_DRAIN}, last=${LAST_DRAIN}), skipping"
+          continue
+        fi
+
+        echo "DRAIN_FIX: Stale MCO drain on $NODE_NAME (desired=${DESIRED_DRAIN}, last=${LAST_DRAIN})"
 
         oc adm uncordon "$NODE_NAME" 2>&1 || true
 
@@ -57,11 +73,14 @@
             --overwrite 2>&1 || true
           echo "DRAIN_FIX: Set lastAppliedDrain=drain-${DESIRED} on $NODE_NAME"
         fi
+        MCC_RESTARTED=1
       done
 
-      oc delete pod -n openshift-machine-config-operator \
-        -l k8s-app=machine-config-controller 2>&1 || true
-      echo "DRAIN_FIX: Restarted MCC pod"
+      if [ "$MCC_RESTARTED" = "1" ]; then
+        oc delete pod -n openshift-machine-config-operator \
+          -l k8s-app=machine-config-controller 2>&1 || true
+        echo "DRAIN_FIX: Restarted MCC pod"
+      fi
     fi
 
     echo "RESULT=pending"

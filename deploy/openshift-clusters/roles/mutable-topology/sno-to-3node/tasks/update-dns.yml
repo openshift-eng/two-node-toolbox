@@ -59,14 +59,24 @@
     dig +short api.{{ sno_cluster_domain }}
   register: dns_api_verify
   changed_when: false
-  failed_when: dns_api_verify.stdout | trim == ""
+  failed_when: >-
+    dns_api_verify.stdout | trim == "" or
+    sno_all_node_ips | intersect(dns_api_verify.stdout_lines) | length == 0
+  retries: 6
+  delay: 5
+  until: >-
+    dns_api_verify.stdout | trim != "" and
+    sno_all_node_ips | intersect(dns_api_verify.stdout_lines) | length > 0
 
 - name: "[dns] Verify apps DNS resolution"
   shell: |
     dig +short test.apps.{{ sno_cluster_domain }}
   register: dns_apps_verify
   changed_when: false
-  failed_when: false
+  failed_when: sno_all_node_ips[0] not in dns_apps_verify.stdout_lines
+  retries: 6
+  delay: 5
+  until: sno_all_node_ips[0] in dns_apps_verify.stdout_lines
 
 - name: "[dns] DNS update complete"
   debug:

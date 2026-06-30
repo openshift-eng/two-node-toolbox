@@ -117,6 +117,20 @@
   changed_when: true
   failed_when: false
 
+- name: "[clean] Remove NetworkManager dnsmasq override"
+  file:
+    path: "{{ sno_nm_dnsmasq_conf }}"
+    state: absent
+  become: true
+  failed_when: false
+
+- name: "[clean] Reload NetworkManager to clear stale DNS overrides"
+  systemd:
+    name: NetworkManager
+    state: reloaded
+  become: true
+  failed_when: false
+
 - name: "[clean] Cleanup complete"
   debug:
     msg: >-

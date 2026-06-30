@@ -28,8 +28,8 @@
     msg: >-
       Config file {{ config_file[method] }} does not set AGENT_E2E_TEST_SCENARIO,
       which is required for the agent installation method. Add
-      AGENT_E2E_TEST_SCENARIO="TNF_IPV4" (fencing) or "TNA_IPV4" (arbiter) to
-      the config file.
+      AGENT_E2E_TEST_SCENARIO="TNF_IPV4" (fencing), "TNA_IPV4" (arbiter), or
+      "SNO_IPV4" (sno) to the config file.
   when:
     - method == "agent"
     - config_scenario | length == 0

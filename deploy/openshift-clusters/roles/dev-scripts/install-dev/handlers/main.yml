@@ -19,6 +19,18 @@
   failed_when: false
   listen: Set OCP project
 
+- name: Warn if oc project failed after all retries
+  debug:
+    msg: >-
+      WARNING: 'oc project openshift-machine-api' still failing after all retries
+      (rc={{ oc_project_result.rc | default('n/a') }}).
+      stderr: {{ oc_project_result.stderr | default('') | trim }}
+  when:
+    - kubeconfig_path is defined
+    - kubeconfig_stat.stat.exists | default(false)
+    - oc_project_result.rc | default(0) != 0
+  listen: Set OCP project
+
 - name: Warn about missing kubeconfig
   debug:
     msg: >-
