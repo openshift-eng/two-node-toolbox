@@ -4,7 +4,7 @@
     path: "/var/lib/libvirt/images/rhcos-live.iso"
   register: iso_stat
 
-- name: "[boot] Find RHCOS live ISO from dev-scripts cache"
+- name: "[boot] Find RHCOS live ISO from dev-scripts cache or release payload"
   shell: |
     DEVSCRIPTS_ISO=$(find /var/lib/libvirt/images -name 'rhcos-*-live*.iso' 2>/dev/null | head -1)
     if [ -n "$DEVSCRIPTS_ISO" ]; then
@@ -20,8 +20,22 @@
       exit 0
     fi
 
-    echo "ERROR: No RHCOS live ISO found. Set sno_rhcos_live_iso variable."
-    exit 1
+    echo "No cached ISO found, pulling from release payload..."
+    PULL_SECRET="{{ sno_dev_scripts_path }}/pull_secret.json"
+    RELEASE_IMAGE=$(KUBECONFIG="{{ sno_kubeconfig_resolved }}" oc get clusterversion version \
+      -o jsonpath='{.status.desired.image}')
+    echo "Release image: $RELEASE_IMAGE"
+    RHCOS_IMAGE=$(oc adm release info \
+      --image-for=machine-os-images \
+      -a "$PULL_SECRET" \
+      "$RELEASE_IMAGE")
+    echo "machine-os-images: $RHCOS_IMAGE"
+    oc image extract "$RHCOS_IMAGE" \
+      -a "$PULL_SECRET" \
+      --path /coreos/coreos-x86_64.iso:/tmp/ \
+      --confirm
+    sudo mv /tmp/coreos-x86_64.iso /var/lib/libvirt/images/rhcos-live.iso
+    echo "ISO pulled from release payload: /var/lib/libvirt/images/rhcos-live.iso"
   when: not iso_stat.stat.exists and sno_rhcos_live_iso == ""
 
 - name: "[boot] Set ISO path"
@@ -42,6 +56,15 @@
     src: auto-install.ign.j2
     dest: /tmp/auto-install.ign
     mode: '0644'
+
+- name: "[boot] Ensure coreos-installer is available"
+  shell: |
+    if ! command -v coreos-installer &>/dev/null; then
+      echo "coreos-installer not found, installing via dnf..."
+      sudo dnf install -y coreos-installer
+    else
+      echo "coreos-installer already installed: $(command -v coreos-installer)"
+    fi
 
 - name: "[boot] Create per-node ISO with embedded ignition"
   shell: |
