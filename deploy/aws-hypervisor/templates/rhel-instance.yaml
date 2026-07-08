@@ -6,6 +6,7 @@ Conditions:
   AddSecondaryVolume: !Not [!Equals [!Ref EC2Type, 'MetalMachine']]
   UseCapacityReservation: !Not [!Equals [!Ref CapacityReservationId, '']]
   UseSpecificAZ: !Not [!Equals [!Ref AvailabilityZone, '']]
+  UseSpotInstance: !Equals [!Ref UseSpot, 'Yes']
 
 Mappings:
   VolumeSize:
@@ -54,6 +55,13 @@ Parameters:
     Type: String
     Description: Specific AZ for instance placement (optional)
     Default: ""
+  UseSpot:
+    Type: String
+    Description: Whether to use spot instances (Yes/No)
+    Default: "No"
+    AllowedValues:
+      - "Yes"
+      - "No"
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -238,6 +246,18 @@ Resources:
           CapacityReservationTarget:
             CapacityReservationId: !Ref CapacityReservationId
 
+  # Launch Template for Spot Instances (only created when spot is used)
+  RHELSpotLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Condition: UseSpotInstance
+    Properties:
+      LaunchTemplateData:
+        InstanceMarketOptions:
+          MarketType: spot
+          SpotOptions:
+            SpotInstanceType: persistent
+            InstanceInterruptionBehavior: stop
+
   # EC2 Instance
   RHELInstance:
     Type: AWS::EC2::Instance
@@ -251,10 +271,14 @@ Resources:
       IamInstanceProfile: !Ref RHELInstanceProfile
       InstanceType: !Ref HostInstanceType
       LaunchTemplate: !If
-        - UseCapacityReservation
-        - LaunchTemplateId: !Ref RHELLaunchTemplate
-          Version: !GetAtt RHELLaunchTemplate.LatestVersionNumber
-        - !Ref AWS::NoValue
+        - UseSpotInstance
+        - LaunchTemplateId: !Ref RHELSpotLaunchTemplate
+          Version: !GetAtt RHELSpotLaunchTemplate.LatestVersionNumber
+        - !If
+          - UseCapacityReservation
+          - LaunchTemplateId: !Ref RHELLaunchTemplate
+            Version: !GetAtt RHELLaunchTemplate.LatestVersionNumber
+          - !Ref AWS::NoValue
       NetworkInterfaces:
         - AssociatePublicIpAddress: "False"
           DeviceIndex: "0"

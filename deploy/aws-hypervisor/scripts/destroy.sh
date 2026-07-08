@@ -62,6 +62,23 @@ if [[ -f "${reservation_file}" ]]; then
     rm -f "${node_dir}/availability-zone"
 fi
 
+# Cancel persistent spot request if the instance is a spot instance
+instance_id_file="${instance_data_dir}/aws-instance-id"
+if [[ -f "${instance_id_file}" ]]; then
+    instance_id=$(cat "${instance_id_file}")
+    spot_request_id=$(aws --region "${REGION}" ec2 describe-instances \
+        --instance-ids "${instance_id}" \
+        --query 'Reservations[0].Instances[0].SpotInstanceRequestId' \
+        --output text --no-cli-pager 2>/dev/null || echo "")
+
+    if [[ -n "${spot_request_id}" && "${spot_request_id}" != "None" && "${spot_request_id}" != "null" ]]; then
+        msg_info "Canceling persistent spot request ${spot_request_id}..."
+        aws --region "${REGION}" ec2 cancel-spot-instance-requests \
+            --spot-instance-request-ids "${spot_request_id}" \
+            --no-cli-pager >/dev/null 2>&1 || msg_warning "Failed to cancel spot request (may already be canceled)"
+    fi
+fi
+
 # Delete compute stack first (CF prevents deleting network while its exports are imported)
 if aws --region "$REGION" cloudformation describe-stacks --stack-name "${STACK_NAME}" &>/dev/null; then
     echo "Deleting compute stack '${STACK_NAME}'..."

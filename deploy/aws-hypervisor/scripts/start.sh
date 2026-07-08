@@ -40,17 +40,24 @@ fi
 INSTANCE_ID=$(cat "${node_dir}/aws-instance-id")
 echo "Starting instance ${INSTANCE_ID}..."
 
-# Check current instance state
+# Check current instance state and lifecycle
 # shellcheck disable=SC2153 # REGION is sourced from instance.env via common.sh, not a misspelling of local 'region'
 INSTANCE_STATE=$(aws --region "${REGION}" ec2 describe-instances --instance-ids "${INSTANCE_ID}" --query 'Reservations[0].Instances[0].State.Name' --output text --no-cli-pager)
+INSTANCE_LIFECYCLE=$(aws --region "${REGION}" ec2 describe-instances --instance-ids "${INSTANCE_ID}" --query 'Reservations[0].Instances[0].InstanceLifecycle' --output text --no-cli-pager || echo "unknown")
 echo "Current instance state: ${INSTANCE_STATE}"
+if [[ "${INSTANCE_LIFECYCLE}" == "spot" ]]; then
+    msg_info "Instance is a spot instance"
+fi
 
 case "${INSTANCE_STATE}" in
     "running")
         echo "Instance is already running."
         ;;
     "stopped")
-        ensure_open_capacity_preference "${INSTANCE_ID}" "${REGION}"
+        # Spot instances don't support capacity reservation attributes
+        if [[ "${INSTANCE_LIFECYCLE}" != "spot" ]]; then
+            ensure_open_capacity_preference "${INSTANCE_ID}" "${REGION}"
+        fi
         echo "Starting instance..."
         aws --region "${REGION}" ec2 start-instances --instance-ids "${INSTANCE_ID}" --no-cli-pager > /dev/null
         echo "Waiting for instance to start..."
@@ -61,7 +68,10 @@ case "${INSTANCE_STATE}" in
     "stopping")
         echo "Instance is currently stopping. Waiting for it to stop completely..."
         aws --region "${REGION}" ec2 wait instance-stopped --instance-ids "${INSTANCE_ID}" --no-cli-pager
-        ensure_open_capacity_preference "${INSTANCE_ID}" "${REGION}"
+        # Spot instances don't support capacity reservation attributes
+        if [[ "${INSTANCE_LIFECYCLE}" != "spot" ]]; then
+            ensure_open_capacity_preference "${INSTANCE_ID}" "${REGION}"
+        fi
         echo "Now starting instance..."
         aws --region "${REGION}" ec2 start-instances --instance-ids "${INSTANCE_ID}" --no-cli-pager > /dev/null
         echo "Waiting for instance to start..."

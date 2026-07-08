@@ -11,7 +11,12 @@ export RHEL_HOST_ARCHITECTURE="${RHEL_HOST_ARCHITECTURE:-x86_64}"
 export EC2_INSTANCE_TYPE="${EC2_INSTANCE_TYPE:-c5n.metal}"
 export RHEL_VERSION="${RHEL_VERSION:-9.6}"
 
-# Capacity reservation defaults
+# Spot instance defaults
+export USE_SPOT_INSTANCE="${USE_SPOT_INSTANCE:-false}"
+# Availability zone override (optional)
+export AVAILABILITY_ZONE="${AVAILABILITY_ZONE:-}"
+
+# Capacity reservation defaults (ignored when USE_SPOT_INSTANCE=true)
 export ENABLE_CAPACITY_RESERVATION="${ENABLE_CAPACITY_RESERVATION:-true}"
 export CAPACITY_RESERVATION_DURATION_MINUTES="${CAPACITY_RESERVATION_DURATION_MINUTES:-60}"
 

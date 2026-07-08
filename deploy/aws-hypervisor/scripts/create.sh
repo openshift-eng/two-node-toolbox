@@ -67,10 +67,19 @@ echo "ec2-user" > "${node_dir}/ssh_user"
 
 echo -e "AMI ID: $RHEL_HOST_AMI"
 echo -e "Machine Type: $EC2_INSTANCE_TYPE"
+echo -e "Spot Instance: ${USE_SPOT_INSTANCE:-false}"
+
+# Spot and capacity reservations are mutually exclusive
+USE_SPOT="${USE_SPOT_INSTANCE:-false}"
+if [[ "${USE_SPOT}" == "true" ]]; then
+    msg_info "Spot instance requested - skipping capacity reservation (mutually exclusive)"
+    ENABLE_CAPACITY_RESERVATION="false"
+fi
 
 # Create capacity reservation to validate and guarantee instance availability
 CAPACITY_RESERVATION_ID=""
-AVAILABILITY_ZONE=""
+# Preserve user-provided AVAILABILITY_ZONE from instance.env
+AVAILABILITY_ZONE="${AVAILABILITY_ZONE:-}"
 
 if [[ "${ENABLE_CAPACITY_RESERVATION}" == "true" ]]; then
     if reservation_result=$(create_capacity_reservation "${EC2_INSTANCE_TYPE}" "${REGION}"); then
@@ -125,7 +134,9 @@ aws --region "$REGION" cloudformation create-stack \
         "ParameterKey=AmiId,ParameterValue=${RHEL_HOST_AMI}" \
         "ParameterKey=EC2Type,ParameterValue=${ec2Type}" \
         "ParameterKey=PublicKeyString,ParameterValue=$(cat "${SSH_PUBLIC_KEY}")" \
-        "ParameterKey=CapacityReservationId,ParameterValue=${CAPACITY_RESERVATION_ID}"
+        "ParameterKey=CapacityReservationId,ParameterValue=${CAPACITY_RESERVATION_ID}" \
+        "ParameterKey=AvailabilityZone,ParameterValue=${AVAILABILITY_ZONE}" \
+        "ParameterKey=UseSpot,ParameterValue=$( [[ "${USE_SPOT}" == "true" ]] && echo "Yes" || echo "No" )"
 
 echo "Waiting for compute stack..."
 aws --region "${REGION}" cloudformation wait stack-create-complete --stack-name "${STACK_NAME}"
