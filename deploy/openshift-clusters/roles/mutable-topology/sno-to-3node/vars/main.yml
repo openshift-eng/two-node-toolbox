@@ -10,6 +10,7 @@ sno_nm_dnsmasq_conf: "/etc/NetworkManager/dnsmasq.d/openshift-{{ sno_cluster_nam
 sno_oc_env:
   KUBECONFIG: "{{ sno_kubeconfig_resolved }}"
   PATH: "/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:{{ ansible_env.PATH | default('/usr/local/bin:/usr/bin') }}"
+  OC_ENABLE_CMD_TRANSITION_TOPOLOGY: "true"
 
 sno_new_nodes:
   - index: 1

@@ -5,7 +5,7 @@ SCRIPT_DIR=$(dirname "$0")
 DEPLOY_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 # shellcheck source=/dev/null
-source "${DEPLOY_DIR}/aws-hypervisor/scripts/common.sh"
+source "${DEPLOY_DIR}/common.sh"
 
 if [[ ! -f "$(get_node_dir)/aws-instance-id" ]]; then
     echo "Error: No instance found. Run 'make deploy' first."

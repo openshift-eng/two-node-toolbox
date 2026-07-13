@@ -66,6 +66,9 @@ function sync_config_files() {
   done
 }
 
+# Set USER if not already set (needed by instance.env)
+export USER="${USER:-$(whoami 2>/dev/null || echo 'user')}"
+
 if [[ -f "${COMMON_DIR}/aws-hypervisor/instance.env" ]]; then
   # shellcheck source=/dev/null
   source "${COMMON_DIR}/aws-hypervisor/instance.env"

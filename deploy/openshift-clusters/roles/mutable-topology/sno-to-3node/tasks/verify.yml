@@ -1,4 +1,32 @@
 ---
+- name: "[verify] Wait for topology transition to complete (up to 20 minutes)"
+  shell: |
+    oc adm transition topology status 2>&1
+  environment: "{{ sno_oc_env }}"
+  register: transition_status
+  changed_when: false
+  failed_when: false
+  retries: 120
+  delay: 10
+  until: >-
+    transition_status is defined and
+    transition_status.rc is defined and
+    transition_status.rc == 0 and
+    transition_status.stdout is defined and
+    'No transition in progress' in transition_status.stdout
+
+- name: "[verify] Display transition status"
+  debug:
+    msg: "{{ transition_status.stdout }}"
+  when: transition_status is defined
+
+- name: "[verify] Check transition completion"
+  fail:
+    msg: "Topology transition did not complete after 20 minutes. See status output above."
+  when:
+    - transition_status is defined
+    - (transition_status.rc != 0 or 'No transition in progress' not in transition_status.stdout)
+
 - name: "[verify] Get node count and status"
   shell: |
     oc get nodes --no-headers
@@ -10,16 +38,15 @@
   debug:
     msg: "{{ verify_nodes.stdout }}"
 
-- name: "[verify] Get topology"
-  shell: |
-    oc get infrastructure cluster -o jsonpath='{.status.controlPlaneTopology}'
-  environment: "{{ sno_oc_env }}"
-  register: verify_topo
-  changed_when: false
+- name: "[verify] Assert 3 nodes"
+  assert:
+    that: (verify_nodes.stdout_lines | length) >= 3
+    fail_msg: "Expected 3+ nodes, found {{ verify_nodes.stdout_lines | length }}"
 
-- name: "[verify] Topology"
-  debug:
-    msg: "Control plane topology: {{ verify_topo.stdout }}"
+- name: "[verify] Assert all nodes Ready"
+  assert:
+    that: "'NotReady' not in verify_nodes.stdout"
+    fail_msg: "One or more nodes are NotReady:\n{{ verify_nodes.stdout }}"
 
 - name: "[verify] Get etcd member count"
   shell: |
@@ -32,85 +59,15 @@
   debug:
     msg: "etcd pods: {{ verify_etcd.stdout | trim }}"
 
-- name: "[verify] Get CVO replica count"
-  shell: |
-    oc get deployment cluster-version-operator -n openshift-cluster-version \
-      -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "unknown"
-  environment: "{{ sno_oc_env }}"
-  register: verify_cvo
-  changed_when: false
-
-- name: "[verify] CVO status"
-  debug:
-    msg: "CVO replicas: {{ verify_cvo.stdout }} (expected: 0 - CVO intentionally scaled down)"
-
-- name: "[verify] Get cluster operator summary"
-  shell: |
-    oc get co -o json | python3 -c "
-    import json, sys
-    data = json.load(sys.stdin)
-    total = len(data['items'])
-    degraded = []
-    unavailable = []
-    for co in data['items']:
-        name = co['metadata']['name']
-        conds = {c['type']: c['status'] for c in co.get('status', {}).get('conditions', [])}
-        if conds.get('Degraded') == 'True':
-            degraded.append(name)
-        if conds.get('Available') == 'False':
-            unavailable.append(name)
-    print(f'Total COs: {total}')
-    if degraded:
-        print(f'Degraded: {chr(44).join(degraded)}')
-    else:
-        print('Degraded: none')
-    if unavailable:
-        print(f'Unavailable: {chr(44).join(unavailable)}')
-    else:
-        print('Unavailable: none')
-    "
-  environment: "{{ sno_oc_env }}"
-  register: verify_co
-  changed_when: false
-
-- name: "[verify] Cluster operators"
-  debug:
-    msg: "{{ verify_co.stdout }}"
-
-- name: "[verify] Get MCP master status"
-  shell: |
-    oc get mcp master --no-headers
-  environment: "{{ sno_oc_env }}"
-  register: verify_mcp
-  changed_when: false
-
-- name: "[verify] MCP status"
-  debug:
-    msg: "{{ verify_mcp.stdout }}"
-
-- name: "[verify] Assert 3 nodes"
-  assert:
-    that: (verify_nodes.stdout_lines | length) >= 3
-    fail_msg: "Expected 3+ nodes, found {{ verify_nodes.stdout_lines | length }}"
-
-- name: "[verify] Assert all nodes Ready"
-  assert:
-    that: "'NotReady' not in verify_nodes.stdout"
-    fail_msg: "One or more nodes are NotReady:\n{{ verify_nodes.stdout }}"
-
-- name: "[verify] Assert HA topology"
-  assert:
-    that: verify_topo.stdout == "HighlyAvailable"
-    fail_msg: "Expected HighlyAvailable, got {{ verify_topo.stdout }}"
-
 - name: "[verify] Assert 3 etcd members"
   assert:
     that: verify_etcd.stdout | trim | int >= 3
     fail_msg: "Expected 3+ etcd pods, found {{ verify_etcd.stdout | trim }}"
 
-- name: "[verify] SNO to 3-node transition verified successfully"
+- name: "[verify] SNO to 3-node HA transition complete"
   debug:
     msg: >-
-      MIGRATION COMPLETE: {{ verify_nodes.stdout_lines | length }} nodes,
-      {{ verify_etcd.stdout | trim }} etcd members,
-      topology={{ verify_topo.stdout }}, CVO={{ verify_cvo.stdout }} replicas.
+      ✓ Topology transition verified via cluster-config-operator conditions
+      ✓ {{ verify_nodes.stdout_lines | length }} nodes Ready
+      ✓ {{ verify_etcd.stdout | trim }} etcd members
+      ✓ Cluster ready for production use

@@ -67,7 +67,7 @@ clean-spoke:
 	@./openshift-clusters/scripts/clean-spoke.sh
 
 clean-mutable-topology:
-	@./openshift-clusters/scripts/clean-mutable-topology.sh
+	@./openshift-clusters/scripts/clean-mutable-topology.sh $(EXTRA_ARGS)
 
 ssh:
 	@./aws-hypervisor/scripts/ssh.sh

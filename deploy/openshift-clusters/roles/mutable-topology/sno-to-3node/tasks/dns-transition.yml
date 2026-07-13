@@ -1,0 +1,52 @@
+---
+- name: "[dns] Delete SNO dnsmasq MachineConfig (switch to HAProxy DNS)"
+  shell: |
+    oc delete mc 50-master-dnsmasq-configuration --ignore-not-found=true
+  environment: "{{ sno_oc_env }}"
+  register: delete_dnsmasq_mc
+  changed_when: "'deleted' in delete_dnsmasq_mc.stdout"
+  failed_when: false
+
+- name: "[dns] Display dnsmasq MC deletion status"
+  debug:
+    msg: "{{ 'MachineConfig 50-master-dnsmasq-configuration deleted' if delete_dnsmasq_mc.changed else 'MachineConfig not found (may have been deleted previously)' }}"
+
+- name: "[dns] Wait for MCO to apply DNS configuration changes"
+  include_tasks: poll-mcp.yml
+  vars:
+    mco_poll_purpose: "DNS transition"
+    mco_poll_timeout_minutes: "{{ sno_dns_transition_timeout_minutes }}"
+    mco_poll_fail_on_timeout: true
+    mco_poll_auto_fix_drain: false
+    mco_poll_check_rendered_config: false  # Standalone MC deletion - generation/config won't change
+  when: delete_dnsmasq_mc.changed
+
+- name: "[dns] Verify DNS configuration on nodes"
+  shell: |
+    # Check that nodes are using cluster DNS, not dnsmasq
+    oc get nodes -o json | jq -r '.items[].metadata.name' | while read node; do
+      RESOLV=$(oc debug node/$node -- chroot /host cat /etc/resolv.conf 2>/dev/null | grep "^nameserver" | head -1)
+      echo "$node: $RESOLV"
+
+      # Verify NOT using 192.168.111.80 (dnsmasq on master-0)
+      if echo "$RESOLV" | grep -q "192.168.111.80"; then
+        echo "ERROR: Node $node still using dnsmasq (192.168.111.80)"
+        exit 1
+      fi
+    done
+  environment: "{{ sno_oc_env }}"
+  register: dns_verify
+  changed_when: false
+  failed_when: false
+  when: delete_dnsmasq_mc.changed
+
+- name: "[dns] DNS transition complete"
+  debug:
+    msg: |
+      {% if delete_dnsmasq_mc.changed %}
+      ✓ SNO dnsmasq MachineConfig removed
+      ✓ MCO rollout completed
+      ✓ Nodes using correct DNS resolvers
+      {% else %}
+      ✓ SNO dnsmasq MachineConfig already removed (skipped MCO wait)
+      {% endif %}

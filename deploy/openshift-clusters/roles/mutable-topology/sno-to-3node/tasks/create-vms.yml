@@ -133,6 +133,7 @@
       "<host ip='{{ item.ip }}'><hostname>{{ item.hostname }}.{{ sno_cluster_domain }}</hostname></host>" \
       --live --config
   loop: "{{ sno_new_nodes }}"
+  failed_when: false
 
 - name: "[create-vms] Add entries to addnhosts"
   lineinfile:

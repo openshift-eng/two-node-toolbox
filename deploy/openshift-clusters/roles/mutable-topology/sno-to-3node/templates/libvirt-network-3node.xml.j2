@@ -1,0 +1,38 @@
+<network xmlns:dnsmasq='http://libvirt.org/schemas/network/dnsmasq/1.0'>
+  <name>{{ sno_libvirt_network }}</name>
+  <forward mode='nat'>
+    <nat>
+      <port start='1024' end='65535'/>
+    </nat>
+  </forward>
+  <bridge name='{{ sno_libvirt_bridge }}' stp='on' delay='0'/>
+  <domain name='{{ sno_cluster_domain }}' localOnly='yes'/>
+  <dns>
+    <host ip='192.168.111.2'>
+      <hostname>ns1</hostname>
+    </host>
+    <host ip='192.168.111.1'>
+      <hostname>virthost</hostname>
+      <hostname>api.{{ sno_cluster_domain }}</hostname>
+      <hostname>api-int.{{ sno_cluster_domain }}</hostname>
+    </host>
+    <host ip='{{ sno_master0_ip }}'>
+      <hostname>master-0.{{ sno_cluster_domain }}</hostname>
+    </host>
+    <host ip='{{ sno_master1_ip }}'>
+      <hostname>master-1.{{ sno_cluster_domain }}</hostname>
+    </host>
+    <host ip='{{ sno_master2_ip }}'>
+      <hostname>master-2.{{ sno_cluster_domain }}</hostname>
+    </host>
+  </dns>
+  <ip address='192.168.111.1' netmask='255.255.255.0'>
+    <dhcp>
+      <range start='192.168.111.2' end='192.168.111.254'/>
+    </dhcp>
+  </ip>
+  <dnsmasq:options>
+    <dnsmasq:option value='cache-size=0'/>
+    <dnsmasq:option value='address=/apps.{{ sno_cluster_domain }}/192.168.111.1'/>
+  </dnsmasq:options>
+</network>

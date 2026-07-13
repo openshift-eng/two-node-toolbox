@@ -1,38 +1,210 @@
 ---
-- name: "[topology] Scale CVO to 0 replicas"
+- name: "[topology] Check if oc adm transition topology command is available"
   shell: |
-    oc scale deployment cluster-version-operator -n openshift-cluster-version --replicas=0
+    oc adm transition topology --help
   environment: "{{ sno_oc_env }}"
-
-- name: "[topology] Wait for CVO to scale down"
-  shell: |
-    oc get deployment cluster-version-operator -n openshift-cluster-version \
-      -o jsonpath='{.status.replicas}' 2>/dev/null || echo "0"
-  environment: "{{ sno_oc_env }}"
-  register: cvo_replicas
-  until: cvo_replicas.stdout | trim | int == 0
-  retries: 30
-  delay: 5
+  register: topology_cmd_check
   changed_when: false
+  failed_when: false
 
-- name: "[topology] CVO scaled down"
+- name: "[topology] Skip topology transition if command not available"
   debug:
-    msg: "CVO scaled to 0 replicas"
+    msg: "oc adm transition topology command not available - skipping topology transition tasks"
+  when: topology_cmd_check.rc != 0
 
-- name: "[topology] Patch Infrastructure CR - topology to HighlyAvailable"
+- name: "[topology] Display transition status"
+  debug:
+    msg: "{{ 'Topology already HighlyAvailable - will skip transition but ensure DNS and ingress configured' if sno_already_ha else 'Topology is SingleReplica - will perform full transition' }}"
+  when: topology_cmd_check.rc == 0
+
+- name: "[topology] Wait for cluster to be ready for transition (up to 20 minutes)"
+  shell: |
+    # Use the official preflight command to validate cluster readiness
+    # This includes operator stability checks with proper Progressing logic
+    oc adm transition topology --control-plane=HighlyAvailable --infrastructure=HighlyAvailable 2>&1
+  environment: "{{ sno_oc_env }}"
+  register: preflight_check
+  changed_when: false
+  failed_when: false
+  retries: 120
+  delay: 10
+  until: >-
+    preflight_check is defined and
+    preflight_check.rc is defined and
+    preflight_check.rc == 0
+  when:
+    - topology_cmd_check.rc == 0
+    - not sno_already_ha
+
+- name: "[topology] Display readiness validation"
+  debug:
+    msg: "✓ Cluster ready for topology transition - all preflight checks passed"
+  when:
+    - topology_cmd_check.rc == 0
+    - not sno_already_ha
+
+- name: "[topology] Initiate topology transition in background (monitors operators for 10min)"
+  shell: |
+    oc adm transition topology --control-plane=HighlyAvailable --infrastructure=HighlyAvailable --confirm
+  environment: "{{ sno_oc_env }}"
+  async: 900
+  poll: 0
+  register: transition_async
+  when:
+    - topology_cmd_check.rc == 0
+    - not sno_already_ha
+
+- name: "[topology] Verify Infrastructure.spec.controlPlaneTopology updated (fast-fail check)"
+  shell: |
+    oc get infrastructure cluster -o jsonpath='{.spec.controlPlaneTopology}' 2>&1
+  environment: "{{ sno_oc_env }}"
+  register: topo_spec_verify
+  changed_when: false
+  retries: 5
+  delay: 2
+  until: >-
+    topo_spec_verify is defined and
+    topo_spec_verify.rc is defined and
+    topo_spec_verify.rc == 0 and
+    topo_spec_verify.stdout == "HighlyAvailable"
+  failed_when: false
+  when:
+    - topology_cmd_check.rc == 0
+    - not sno_already_ha
+
+- name: "[topology] Check async transition command status if spec update failed"
+  async_status:
+    jid: "{{ transition_async.ansible_job_id }}"
+  register: transition_job_result
+  when:
+    - topology_cmd_check.rc == 0
+    - not sno_already_ha
+    - topo_spec_verify.stdout != "HighlyAvailable"
+
+- name: "[topology] Display transition command output"
+  fail:
+    msg: |
+      Topology transition command failed to update Infrastructure.spec after 10 seconds.
+
+      Infrastructure.spec.controlPlaneTopology: {{ topo_spec_verify.stdout if topo_spec_verify.stdout else 'unable to read' }}
+      Expected: HighlyAvailable
+
+      Transition command output:
+      {{ transition_job_result.stdout if transition_job_result.stdout is defined else 'No output available' }}
+
+      Transition command stderr:
+      {{ transition_job_result.stderr if transition_job_result.stderr is defined else 'No errors captured' }}
+  when:
+    - topology_cmd_check.rc == 0
+    - not sno_already_ha
+    - topo_spec_verify.stdout != "HighlyAvailable"
+
+- name: "[topology] Display transition started"
+  debug:
+    msg: "✓ Topology transition started in background - spec updated to HighlyAvailable. Will monitor for status update and apply network fixes."
+  when:
+    - topology_cmd_check.rc == 0
+    - not sno_already_ha
+
+- name: "[topology] Wait for Infrastructure.status update (up to 5 minutes)"
+  shell: |
+    oc get infrastructure cluster -o jsonpath='{.status.controlPlaneTopology},{.status.infrastructureTopology}' 2>&1
+  environment: "{{ sno_oc_env }}"
+  register: status_check
+  changed_when: false
+  failed_when: false
+  retries: 30
+  delay: 10
+  until: >-
+    status_check is defined and
+    status_check.rc is defined and
+    status_check.rc == 0 and
+    status_check.stdout is defined and
+    status_check.stdout == "HighlyAvailable,HighlyAvailable"
+  when:
+    - topology_cmd_check.rc == 0
+    - not sno_already_ha
+
+- name: "[topology] Check if CCO reconciliation succeeded (both topologies HighlyAvailable)"
+  set_fact:
+    cco_reconciled: "{{ status_check.rc == 0 and status_check.stdout == 'HighlyAvailable,HighlyAvailable' }}"
+  when:
+    - topology_cmd_check.rc == 0
+    - not sno_already_ha
+
+- name: "[topology] ⚠️  WARNING: CCO did not reconcile status - applying manual patch fallback"
+  debug:
+    msg: |
+      ╔═══════════════════════════════════════════════════════════════════════════════╗
+      ║                              ⚠️  CRITICAL WARNING ⚠️                          ║
+      ╠═══════════════════════════════════════════════════════════════════════════════╣
+      ║  The cluster-config-operator did NOT automatically update Infrastructure      ║
+      ║  status within 5 minutes after spec was patched.                              ║
+      ║                                                                               ║
+      ║  This indicates one of the following:                                         ║
+      ║    1. The CCO topology controller is NOT deployed in this payload             ║
+      ║    2. The CCO controller encountered an error during reconciliation           ║
+      ║    3. The controller loop timing is longer than expected                      ║
+      ║                                                                               ║
+      ║  Applying MANUAL PATCH as fallback to complete the topology transition.       ║
+      ║                                                                               ║
+      ║  ACTION REQUIRED:                                                             ║
+      ║    - Verify CCO logs: oc logs -n openshift-cluster-config-operator ...        ║
+      ║    - Check if mutable-topology-controller is present in CCO image             ║
+      ║    - Confirm payload includes expected CCO version                            ║
+      ╚═══════════════════════════════════════════════════════════════════════════════╝
+  when:
+    - topology_cmd_check.rc == 0
+    - not sno_already_ha
+    - not cco_reconciled
+
+- name: "[topology] Apply manual Infrastructure.status patch (fallback)"
   shell: |
     oc patch infrastructure cluster --type merge --subresource status \
       -p '{"status":{"controlPlaneTopology":"HighlyAvailable","infrastructureTopology":"HighlyAvailable"}}'
   environment: "{{ sno_oc_env }}"
+  when:
+    - topology_cmd_check.rc == 0
+    - not sno_already_ha
+    - not cco_reconciled
 
-- name: "[topology] Verify topology patch"
+- name: "[topology] Verify manual patch applied successfully"
   shell: |
-    oc get infrastructure cluster -o jsonpath='{.status.controlPlaneTopology}'
+    oc get infrastructure cluster -o jsonpath='{.status.controlPlaneTopology},{.status.infrastructureTopology}'
   environment: "{{ sno_oc_env }}"
-  register: topo_verify
+  register: manual_patch_verify
   changed_when: false
-  failed_when: topo_verify.stdout != "HighlyAvailable"
+  failed_when: manual_patch_verify.stdout != "HighlyAvailable,HighlyAvailable"
+  when:
+    - topology_cmd_check.rc == 0
+    - not sno_already_ha
+    - not cco_reconciled
+
+- name: "[topology] Topology transition complete (via CCO)"
+  debug:
+    msg: "✓ Topology spec and status updated to HighlyAvailable by cluster-config-operator. Cluster will begin scaling control plane components."
+  when:
+    - topology_cmd_check.rc == 0
+    - not sno_already_ha
+    - cco_reconciled
+
+- name: "[topology] Topology transition complete (via manual fallback)"
+  debug:
+    msg: "✓ Topology spec and status updated to HighlyAvailable via manual patch. Cluster will begin scaling control plane components. (CCO reconciliation timed out - see warning above)"
+  when:
+    - topology_cmd_check.rc == 0
+    - not sno_already_ha
+    - not cco_reconciled
 
 - name: "[topology] Topology transition complete"
   debug:
-    msg: "Topology changed to HighlyAvailable. MCO rollout will begin."
+    msg: |
+      ✓ Infrastructure.spec.controlPlaneTopology = HighlyAvailable
+      ✓ Infrastructure.status.controlPlaneTopology = HighlyAvailable
+      {% if not sno_already_ha %}
+      ✓ MCO will re-render master configs in Phase 9
+      ✓ IngressController will be reconfigured after MCO rollout completes
+      {% else %}
+      ✓ Topology already HighlyAvailable (skipping MCO rollout wait)
+      ✓ IngressController will be reconfigured in Phase 10
+      {% endif %}
