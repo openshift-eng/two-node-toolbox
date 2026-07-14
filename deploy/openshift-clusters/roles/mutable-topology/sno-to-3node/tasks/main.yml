@@ -2,29 +2,62 @@
 - name: "Phase 0: Preflight checks"
   import_tasks: preflight.yml
 
+- name: "[main] Check if VMs exist"
+  shell: |
+    sudo virsh list --all --name | grep -E '^({{ sno_cluster_name }}_master_1|{{ sno_cluster_name }}_master_2)$' | wc -l
+  register: vm_count_check
+  changed_when: false
+  failed_when: false
+
+- name: "[main] Check if etcd has 3+ members"
+  shell: |
+    oc get pods -n openshift-etcd -l app=etcd --no-headers 2>/dev/null | wc -l
+  environment: "{{ sno_oc_env }}"
+  register: etcd_count_check
+  changed_when: false
+  failed_when: false
+
+- name: "[main] Set phase completion flags"
+  set_fact:
+    sno_needs_vms: "{{ (vm_count_check.stdout | trim | int) < 2 }}"
+    sno_needs_nodes: "{{ not sno_has_three_nodes }}"
+    sno_needs_etcd: "{{ (etcd_count_check.stdout | trim | int) < 3 }}"
+
 - name: "Phase 1: Generate ignition config"
   import_tasks: ignition.yml
+  when: sno_needs_nodes
 
 - name: "Phase 2: Create new VMs"
   import_tasks: create-vms.yml
+  when: sno_needs_vms
 
 - name: "Phase 3: Boot nodes with RHCOS"
   import_tasks: boot-nodes.yml
+  when: sno_needs_vms
 
 - name: "Phase 4: Wait for nodes to join"
   import_tasks: wait-nodes.yml
+  when: sno_needs_nodes
 
 - name: "Phase 5: Wait for etcd scaling"
   import_tasks: wait-etcd.yml
+  when: sno_needs_etcd
 
-- name: "Phase 6: Topology transition"
+- name: "Phase 6: Configure HAProxy load balancer"
+  import_tasks: haproxy-setup.yml
+
+- name: "Phase 7: DNS transition to HAProxy"
+  import_tasks: dns-transition.yml
+
+- name: "Phase 8: Topology transition"
   import_tasks: topology.yml
 
-- name: "Phase 7: MCO rollout"
+- name: "Phase 9: MCO rollout after topology transition"
   import_tasks: mco-rollout.yml
+  when: not sno_already_ha
 
-- name: "Phase 8: Update DNS for all nodes"
-  import_tasks: update-dns.yml
+- name: "Phase 10: IngressController reconfiguration for HA"
+  import_tasks: ingress-reconfigure.yml
 
-- name: "Phase 9: Final verification"
+- name: "Phase 11: Final verification"
   import_tasks: verify.yml

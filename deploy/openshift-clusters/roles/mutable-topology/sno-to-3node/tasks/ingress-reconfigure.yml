@@ -1,0 +1,121 @@
+---
+# Reconfigure IngressController for HA after MCO rollout and operator sync
+# This must run AFTER Infrastructure.status has been updated AND operators have synced
+# The IngressController operator reads Infrastructure.status to determine default replicas
+
+- name: "[ingress] Check current IngressController replica configuration"
+  shell:
+    cmd: |
+      REPLICAS=$(oc get ingresscontroller/default -n openshift-ingress-operator -o json 2>/dev/null | jq -r '.spec.replicas // empty')
+      echo "replicas=${REPLICAS}"
+
+      # Empty means field not set - defaults to 2 in HA mode, so it's already correct
+      if [ -z "$REPLICAS" ]; then
+        echo "needs_deletion=false (field unset - using HA defaults)"
+        exit 0
+      fi
+
+      # If replicas is 1, we need to delete to trigger HA recreation
+      if [ "$REPLICAS" = "1" ]; then
+        echo "needs_deletion=true (currently replicas=1)"
+        exit 0
+      fi
+
+      # If replicas >= 2, already configured for HA
+      echo "needs_deletion=false (already replicas=$REPLICAS)"
+  environment: "{{ sno_oc_env }}"
+  register: ingress_check
+  changed_when: false
+
+- name: "[ingress] Display current IngressController status"
+  debug:
+    msg: "{{ ingress_check.stdout_lines }}"
+
+- name: "[ingress] Delete IngressController to trigger recreation with HA defaults"
+  shell: |
+    oc delete ingresscontroller/default -n openshift-ingress-operator
+  environment: "{{ sno_oc_env }}"
+  register: delete_ingress
+  changed_when: delete_ingress.rc == 0
+  when: "'needs_deletion=true' in ingress_check.stdout"
+
+- name: "[ingress] Wait for IngressController automatic recreation"
+  shell: |
+    oc get ingresscontroller/default -n openshift-ingress-operator -o json 2>&1
+  environment: "{{ sno_oc_env }}"
+  register: ingress_recreate_check
+  changed_when: false
+  retries: 12
+  delay: 10
+  until: ingress_recreate_check.rc == 0
+  when: "'needs_deletion=true' in ingress_check.stdout"
+
+- name: "[ingress] Verify IngressController has correct replicas for HA"
+  shell:
+    cmd: |
+      REPLICAS=$(oc get ingresscontroller/default -n openshift-ingress-operator -o json 2>/dev/null | jq -r '.spec.replicas // empty')
+      echo "replicas=${REPLICAS}"
+
+      # Empty or >= 2 is correct for HA
+      if [ -z "$REPLICAS" ] || [ "$REPLICAS" -ge 2 ] 2>/dev/null; then
+        exit 0
+      fi
+
+      # If still 1, that's an error
+      if [ "$REPLICAS" = "1" ]; then
+        echo "ERROR: IngressController still has replicas=1 after HA transition"
+        exit 1
+      fi
+  environment: "{{ sno_oc_env }}"
+  register: ingress_config
+  changed_when: false
+  failed_when: ingress_config.rc != 0
+
+- name: "[ingress] Display IngressController configuration"
+  debug:
+    msg: "✓ IngressController configured for HA: {{ ingress_config.stdout }}"
+
+- name: "[ingress] Wait for router pods to be ready"
+  shell: |
+    # Check if router pods are running with hostNetwork
+    oc get pods -n openshift-ingress -l ingresscontroller.operator.openshift.io/deployment-ingresscontroller=default -o json | jq -e '
+      .items[] |
+      select(.spec.hostNetwork != true) |
+      "\(.metadata.name): ERROR - not using hostNetwork"
+    ' && exit 1
+
+    oc get pods -n openshift-ingress -l ingresscontroller.operator.openshift.io/deployment-ingresscontroller=default -o json | jq -e '
+      .items[] |
+      select(.status.phase != "Running") |
+      "\(.metadata.name): phase=\(.status.phase)"
+    ' && exit 1
+
+    oc get pods -n openshift-ingress -l ingresscontroller.operator.openshift.io/deployment-ingresscontroller=default -o json | jq -e '
+      .items[] |
+      select(any(.status.containerStatuses[]?; .ready != true)) |
+      "\(.metadata.name): not ready"
+    ' && exit 1
+
+    echo "All router pods ready"
+  environment: "{{ sno_oc_env }}"
+  register: router_pods_check
+  changed_when: false
+  failed_when: false
+  retries: 24
+  delay: 10
+  until: >-
+    router_pods_check is defined and
+    router_pods_check.rc is defined and
+    router_pods_check.rc == 0 and
+    'All router pods ready' in router_pods_check.stdout
+
+- name: "[ingress] IngressController reconfiguration complete"
+  debug:
+    msg: |
+      {% if 'needs_deletion=true' in ingress_check.stdout %}
+      ✓ IngressController recreated with HA defaults
+      ✓ Router pods ready and serving traffic
+      {% else %}
+      ✓ IngressController already configured for HA (skipped deletion)
+      ✓ Router pods ready and serving traffic
+      {% endif %}

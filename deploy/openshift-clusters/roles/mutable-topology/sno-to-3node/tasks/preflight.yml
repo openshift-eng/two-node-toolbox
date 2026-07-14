@@ -27,13 +27,6 @@
     that: sno_platform == "None"
     fail_msg: "Expected platform None, got {{ sno_platform }}"
 
-- name: "[preflight] Assert topology is SingleReplica"
-  assert:
-    that: sno_cp_topology == "SingleReplica"
-    fail_msg: "Expected SingleReplica topology, got {{ sno_cp_topology }}. Cluster may already be HA."
-  when: not (sno_skip_topology_check | default(false) | bool)
-
-
 - name: "[preflight] Display detected cluster info"
   debug:
     msg: >-
@@ -52,12 +45,33 @@
   set_fact:
     sno_nodes: "{{ (nodes_raw.stdout | from_json)['items'] }}"
 
-- name: "[preflight] Assert exactly 1 node exists"
-  assert:
-    that: sno_nodes | length == 1
-    fail_msg: "Expected 1 node for SNO, found {{ sno_nodes | length }}"
+- name: "[preflight] Detect current cluster state"
+  set_fact:
+    sno_node_count: "{{ sno_nodes | length | int }}"
+    sno_has_three_nodes: "{{ (sno_nodes | length) == 3 }}"
+    sno_is_fresh: "{{ (sno_nodes | length) == 1 }}"
+    sno_transition_in_progress: "{{ (sno_nodes | length) == 3 and sno_cp_topology == 'SingleReplica' }}"
+    sno_already_ha: "{{ (sno_nodes | length) == 3 and sno_cp_topology == 'HighlyAvailable' }}"
 
-- name: "[preflight] Auto-detect master-0 IP"
+- name: "[preflight] Assert valid node count (1 or 3)"
+  assert:
+    that:
+      - (sno_node_count | int) in [1, 3]
+    fail_msg: "Expected 1 or 3 nodes, found {{ sno_node_count }}. Cluster is in an unexpected state."
+
+- name: "[preflight] Display detected state"
+  debug:
+    msg: |
+      Cluster state: {{ sno_node_count }} nodes, topology={{ sno_cp_topology }}
+      {% if sno_is_fresh %}
+      → Fresh SNO cluster - will add 2 nodes and transition to HA
+      {% elif sno_transition_in_progress %}
+      → Transition in progress - nodes added but topology not transitioned yet
+      {% elif sno_already_ha %}
+      → Already HighlyAvailable - will verify configuration
+      {% endif %}
+
+- name: "[preflight] Auto-detect first node IP"
   set_fact:
     sno_master0_ip: >-
       {{ sno_master0_ip if sno_master0_ip
@@ -65,17 +79,17 @@
                | selectattr('type', 'equalto', 'InternalIP')
                | map(attribute='address') | first) }}
 
-- name: "[preflight] Display master-0 IP"
+- name: "[preflight] Display first node IP"
   debug:
-    msg: "master-0 IP: {{ sno_master0_ip }}"
+    msg: "First node ({{ sno_nodes[0].metadata.name }}) IP: {{ sno_master0_ip }}"
 
-- name: "[preflight] Check node is Ready"
+- name: "[preflight] Check first node is Ready"
   assert:
     that: >-
       sno_nodes[0].status.conditions
       | selectattr('type', 'equalto', 'Ready')
       | map(attribute='status') | first == 'True'
-    fail_msg: "master-0 is not Ready"
+    fail_msg: "First node {{ sno_nodes[0].metadata.name }} is not Ready"
 
 - name: "[preflight] Check etcd pods"
   shell: |
@@ -91,20 +105,12 @@
 
 - name: "[preflight] Check for degraded cluster operators"
   shell: |
-    oc get co -o json | python3 -c "
-    import json, sys
-    data = json.load(sys.stdin)
-    degraded = []
-    for co in data['items']:
-        name = co['metadata']['name']
-        for cond in co.get('status', {}).get('conditions', []):
-            if cond['type'] == 'Degraded' and cond['status'] == 'True':
-                degraded.append(name)
-    if degraded:
-        print('Degraded COs: ' + ', '.join(degraded))
-        sys.exit(1)
-    print('All cluster operators healthy')
-    "
+    DEGRADED=$(oc get co -o json | jq -r '[.items[] | select(.status.conditions[] | select(.type=="Degraded" and .status=="True")) | .metadata.name] | join(", ")')
+    if [ -n "$DEGRADED" ]; then
+      echo "Degraded COs: $DEGRADED"
+      exit 1
+    fi
+    echo "All cluster operators healthy"
   environment: "{{ sno_oc_env }}"
   register: co_check
   changed_when: false
@@ -119,52 +125,40 @@
     msg: "WARNING: Some COs are degraded. Proceeding anyway."
   when: co_check.rc != 0
 
-- name: "[preflight] Verify api-int DNS on hypervisor"
+- name: "[preflight] Check if api-int DNS exists"
   shell: |
     dig +short api-int.{{ sno_cluster_domain }} @192.168.111.1
   register: dns_apiint
   changed_when: false
   failed_when: false
 
-- name: "[preflight] Add api-int to libvirt network DNS"
-  # Using virsh net-update (not lineinfile) so that api-int survives addnhosts
-  # regeneration when create-vms.yml calls virsh net-update for master-1/2.
-  # libvirt regenerates ostestbm.addnhosts from the network XML on every net-update.
-  # Delete by FQDN regardless of current IP so a stale VIP entry (e.g. left by a
-  # previous partial run) doesn't cause the subsequent add to fail.
+- name: "[preflight] Add api-int as additional hostname to master-0 DNS entry"
   shell: |
-    CURRENT_IP=$(sudo virsh net-dumpxml {{ sno_libvirt_network }} | python3 -c "
-    import xml.etree.ElementTree as ET, sys
-    root = ET.parse(sys.stdin).getroot()
-    for h in root.findall('.//dns/host'):
-        for hn in h.findall('hostname'):
-            if hn.text == 'api-int.{{ sno_cluster_domain }}':
-                print(h.get('ip', ''))
-    " 2>/dev/null || true)
+    # Delete existing master-0 entry
+    sudo virsh net-update {{ sno_libvirt_network }} delete dns-host \
+      "<host ip='{{ sno_master0_ip }}'><hostname>master-0</hostname></host>" \
+      --live --config 2>/dev/null || true
 
-    if [ -n "$CURRENT_IP" ]; then
-      sudo virsh net-update {{ sno_libvirt_network }} delete dns-host \
-        "<host ip='${CURRENT_IP}'><hostname>api-int.{{ sno_cluster_domain }}</hostname></host>" \
-        --live --config 2>/dev/null || true
-    fi
-
-    # Add the correct entry - triggers addnhosts regeneration with api-int included
+    # Re-add with both hostnames
     sudo virsh net-update {{ sno_libvirt_network }} add dns-host \
-      "<host ip='{{ sno_master0_ip }}'><hostname>api-int.{{ sno_cluster_domain }}</hostname></host>" \
+      "<host ip='{{ sno_master0_ip }}'><hostname>master-0</hostname><hostname>api-int.{{ sno_cluster_domain }}</hostname></host>" \
       --live --config
-  when: dns_apiint.stdout | trim == "" or sno_master0_ip not in dns_apiint.stdout
+  when: dns_apiint.stdout | trim == ""
   changed_when: true
 
-- name: "[preflight] Verify api-int DNS after fix"
+- name: "[preflight] Verify api-int DNS resolves"
   shell: |
     dig +short api-int.{{ sno_cluster_domain }} @192.168.111.1
   register: dns_apiint_verify
   changed_when: false
-  failed_when: sno_master0_ip not in dns_apiint_verify.stdout
+  failed_when: dns_apiint_verify.stdout | trim == ""
   retries: 3
   delay: 2
-  until: sno_master0_ip in dns_apiint_verify.stdout
-  when: dns_apiint.stdout | trim == "" or sno_master0_ip not in dns_apiint.stdout
+  until: dns_apiint_verify.stdout | trim != ""
+
+- name: "[preflight] Display api-int DNS status"
+  debug:
+    msg: "api-int.{{ sno_cluster_domain }} resolves to {{ dns_apiint_verify.stdout | trim }}"
 
 - name: "[preflight] Preflight checks passed"
   debug:

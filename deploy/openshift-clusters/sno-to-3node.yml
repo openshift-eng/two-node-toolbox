@@ -8,7 +8,7 @@
       ansible.builtin.pause:
         prompt: >-
           This will transition the SNO cluster to a 3-node HA cluster.
-          2 new VMs will be created. CVO will be scaled to 0.
+          2 new VMs will be created and the cluster topology will be updated.
           Press Enter to proceed or Ctrl+C to abort.
       delegate_to: localhost
       run_once: true

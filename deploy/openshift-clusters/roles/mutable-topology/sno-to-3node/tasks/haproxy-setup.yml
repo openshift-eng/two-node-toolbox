@@ -1,0 +1,352 @@
+---
+- name: "[haproxy] Check if haproxy is already installed"
+  shell: rpm -q haproxy
+  register: haproxy_check
+  changed_when: false
+  failed_when: false
+
+- name: "[haproxy] Install haproxy package on hypervisor"
+  package:
+    name: haproxy
+    state: present
+  become: true
+  when: haproxy_check.rc != 0
+
+- name: "[haproxy] Create haproxy runtime directory"
+  file:
+    path: /run/haproxy
+    state: directory
+    owner: haproxy
+    group: haproxy
+    mode: '0755'
+  become: true
+
+- name: "[haproxy] Create haproxy configuration for OpenShift"
+  copy:
+    dest: /etc/haproxy/haproxy.cfg
+    content: |
+      global
+        log /dev/log local0
+        log /dev/log local1 notice
+        chroot /var/lib/haproxy
+        stats socket /run/haproxy/admin.sock mode 660 level admin
+        stats timeout 30s
+        user haproxy
+        group haproxy
+        daemon
+
+      defaults
+        log     global
+        mode    tcp
+        option  tcplog
+        option  dontlognull
+        timeout connect 5000
+        timeout client  50000
+        timeout server  50000
+
+      # API server (6443)
+      frontend api_server
+        bind *:6443
+        default_backend api_server_backend
+
+      backend api_server_backend
+        balance roundrobin
+        option tcp-check
+        server master-0 {{ sno_master0_ip }}:6443 check
+        server master-1 {{ sno_master1_ip }}:6443 check
+        server master-2 {{ sno_master2_ip }}:6443 check
+
+      # Ingress HTTP (80)
+      frontend ingress_http
+        bind *:80
+        default_backend ingress_http_backend
+
+      backend ingress_http_backend
+        balance roundrobin
+        option tcp-check
+        server master-0 {{ sno_master0_ip }}:80 check
+        server master-1 {{ sno_master1_ip }}:80 check
+        server master-2 {{ sno_master2_ip }}:80 check
+
+      # Ingress HTTPS (443)
+      frontend ingress_https
+        bind *:443
+        default_backend ingress_https_backend
+
+      backend ingress_https_backend
+        balance roundrobin
+        option tcp-check
+        server master-0 {{ sno_master0_ip }}:443 check
+        server master-1 {{ sno_master1_ip }}:443 check
+        server master-2 {{ sno_master2_ip }}:443 check
+
+      # Machine Config Server (22623)
+      frontend machine_config
+        bind *:22623
+        default_backend machine_config_backend
+
+      backend machine_config_backend
+        balance roundrobin
+        option tcp-check
+        server master-0 {{ sno_master0_ip }}:22623 check
+        server master-1 {{ sno_master1_ip }}:22623 check
+        server master-2 {{ sno_master2_ip }}:22623 check
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  register: haproxy_config
+
+- name: "[haproxy] Allow HAProxy to bind to OpenShift ports in SELinux"
+  shell: |
+    if ! semanage port -l | grep -q "^http_port_t.*tcp.*{{ item }}"; then
+      semanage port -a -t http_port_t -p tcp {{ item }}
+      echo "CHANGED"
+    else
+      echo "UNCHANGED"
+    fi
+  loop:
+    - 6443
+    - 22623
+  become: true
+  register: selinux_port_config
+  changed_when: "'CHANGED' in selinux_port_config.stdout"
+
+- name: "[haproxy] Check existing firewall rules (public zone)"
+  shell: |
+    firewall-cmd --zone=public --list-ports | grep -q "{{ item }}"
+  loop:
+    - 6443/tcp
+    - 80/tcp
+    - 443/tcp
+    - 22623/tcp
+  register: fw_public_check
+  failed_when: false
+  changed_when: false
+  become: true
+
+- name: "[haproxy] Configure firewall for HAProxy ports"
+  firewalld:
+    port: "{{ item.item }}"
+    permanent: true
+    state: enabled
+    immediate: true
+  loop: "{{ fw_public_check.results }}"
+  when: item.rc != 0
+  become: true
+  failed_when: false
+
+- name: "[haproxy] Check existing firewall rules (libvirt zone)"
+  shell: |
+    firewall-cmd --zone=libvirt --list-ports | grep -q "{{ item }}"
+  loop:
+    - 6443/tcp
+    - 80/tcp
+    - 443/tcp
+    - 22623/tcp
+  register: fw_libvirt_check
+  failed_when: false
+  changed_when: false
+  become: true
+
+- name: "[haproxy] Allow HAProxy to reach backends through libvirt zone"
+  firewalld:
+    zone: libvirt
+    port: "{{ item.item }}"
+    permanent: true
+    state: enabled
+    immediate: true
+  loop: "{{ fw_libvirt_check.results }}"
+  when: item.rc != 0
+  become: true
+  failed_when: false
+
+- name: "[haproxy] Enable and start haproxy service"
+  systemd:
+    name: haproxy
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+
+- name: "[haproxy] Restart haproxy if config changed"
+  systemd:
+    name: haproxy
+    state: restarted
+  become: true
+  when: haproxy_config.changed
+
+- name: "[haproxy] Wait for haproxy to be ready"
+  wait_for:
+    port: 6443
+    host: 192.168.111.1
+    timeout: 30
+
+- name: "[haproxy] Remove stale apps entries from /etc/hosts before DNS reconfiguration"
+  lineinfile:
+    path: /etc/hosts
+    regexp: "apps\\.{{ sno_cluster_domain | regex_escape() }}"
+    state: absent
+  become: true
+  register: hosts_cleanup
+
+- name: "[haproxy] Display /etc/hosts cleanup"
+  debug:
+    msg: "✓ Removed stale apps routes from /etc/hosts (preparing for wildcard DNS)"
+  when: hosts_cleanup.changed
+
+- name: "[haproxy] Generate libvirt network config for 3-node HA"
+  template:
+    src: libvirt-network-3node.xml.j2
+    dest: /tmp/libvirt-network-3node.xml
+    mode: '0644'
+
+- name: "[haproxy] Update libvirt network with HAProxy DNS configuration"
+  shell: |
+    sudo virsh net-destroy {{ sno_libvirt_network }} 2>/dev/null || true
+    sudo virsh net-undefine {{ sno_libvirt_network }}
+    sudo virsh net-define /tmp/libvirt-network-3node.xml
+    sudo virsh net-start {{ sno_libvirt_network }}
+  register: libvirt_network_update
+  changed_when: true
+
+- name: "[haproxy] Update API entries in addnhosts to point to HAProxy (round robin)"
+  lineinfile:
+    path: "{{ sno_addnhosts_path }}"
+    regexp: "^192\\.168\\.111\\.[0-9]+\\s+api\\.{{ sno_cluster_domain | regex_escape }}"
+    line: "192.168.111.1 api.{{ sno_cluster_domain }} api"
+    state: present
+  become: true
+  failed_when: false
+  register: api_addnhosts
+
+- name: "[haproxy] Update API-INT entries in addnhosts to point to HAProxy (round robin)"
+  lineinfile:
+    path: "{{ sno_addnhosts_path }}"
+    regexp: "^192\\.168\\.111\\.[0-9]+\\s+api-int\\.{{ sno_cluster_domain | regex_escape }}"
+    line: "192.168.111.1 api-int.{{ sno_cluster_domain }} api-int"
+    state: present
+  become: true
+  failed_when: false
+  register: api_int_addnhosts
+
+- name: "[haproxy] Update NetworkManager dnsmasq API entry"
+  lineinfile:
+    path: "/etc/NetworkManager/dnsmasq.d/openshift-{{ sno_cluster_name }}.conf"
+    regexp: "^address=/api\\.{{ sno_cluster_domain | regex_escape }}/"
+    line: "address=/api.{{ sno_cluster_domain }}/192.168.111.1"
+    state: present
+  become: true
+  failed_when: false
+  register: nm_dnsmasq_config
+
+- name: "[haproxy] Restart NetworkManager to flush DNS cache"
+  systemd:
+    name: NetworkManager
+    state: restarted
+  become: true
+  register: nm_restart
+  when: >
+    nm_dnsmasq_config.changed or
+    api_addnhosts.changed or
+    api_int_addnhosts.changed
+
+- name: "[haproxy] Restart libvirtd to restore VM network connectivity"
+  systemd:
+    name: libvirtd
+    state: restarted
+  become: true
+  register: libvirtd_restart
+  when: libvirt_network_update.changed
+
+- name: "[haproxy] Verify DNS configuration"
+  when: >
+    libvirt_network_update.changed or
+    api_addnhosts.changed or
+    api_int_addnhosts.changed or
+    nm_dnsmasq_config.changed
+  block:
+    - name: "[haproxy] Verify API DNS resolution through HAProxy"
+      shell: |
+        RESULT=$(dig +short api.{{ sno_cluster_domain }} @192.168.111.1)
+        echo "DNS result: $RESULT"
+        if echo "$RESULT" | grep -q "192.168.111.1"; then
+          exit 0
+        else
+          exit 1
+        fi
+      register: api_dns_check
+      changed_when: false
+      failed_when: false
+      retries: 5
+      delay: 2
+      until: api_dns_check.rc == 0
+
+    - name: "[haproxy] Check API DNS result"
+      fail:
+        msg: |
+          API DNS not pointing to HAProxy!
+          Expected: 192.168.111.1
+          Got: {{ api_dns_check.stdout }}
+      when: api_dns_check.rc != 0
+
+    - name: "[haproxy] Verify API-INT DNS resolution through HAProxy"
+      shell: |
+        RESULT=$(dig +short api-int.{{ sno_cluster_domain }} @192.168.111.1)
+        echo "DNS result: $RESULT"
+        if echo "$RESULT" | grep -q "192.168.111.1"; then
+          exit 0
+        else
+          exit 1
+        fi
+      register: api_int_dns_check
+      changed_when: false
+      failed_when: false
+      retries: 5
+      delay: 2
+      until: api_int_dns_check.rc == 0
+
+    - name: "[haproxy] Check API-INT DNS result"
+      fail:
+        msg: |
+          API-INT DNS not pointing to HAProxy!
+          Expected: 192.168.111.1
+          Got: {{ api_int_dns_check.stdout }}
+      when: api_int_dns_check.rc != 0
+
+    - name: "[haproxy] Verify wildcard DNS for non-existent apps route"
+      shell: |
+        dig +short test.apps.{{ sno_cluster_domain }} @192.168.111.1
+      register: wildcard_dns_check
+      changed_when: false
+      failed_when: wildcard_dns_check.stdout | trim != "192.168.111.1"
+
+    - name: "[haproxy] Verify DNS for OAuth route (real route)"
+      shell: |
+        dig +short oauth-openshift.apps.{{ sno_cluster_domain }} @192.168.111.1
+      register: oauth_dns_check
+      changed_when: false
+      failed_when: oauth_dns_check.stdout | trim != "192.168.111.1"
+
+    - name: "[haproxy] Verify DNS for Console route (real route)"
+      shell: |
+        dig +short console-openshift-console.apps.{{ sno_cluster_domain }} @192.168.111.1
+      register: console_dns_check
+      changed_when: false
+      failed_when: console_dns_check.stdout | trim != "192.168.111.1"
+
+    - name: "[haproxy] Display apps wildcard DNS verification"
+      debug:
+        msg: |
+          ✓ Wildcard DNS: test.apps → {{ wildcard_dns_check.stdout | trim }}
+          ✓ OAuth route: oauth-openshift.apps → {{ oauth_dns_check.stdout | trim }}
+          ✓ Console route: console-openshift-console.apps → {{ console_dns_check.stdout | trim }}
+
+- name: "[haproxy] HAProxy setup complete"
+  debug:
+    msg: |
+      ✓ HAProxy configured and running on hypervisor (192.168.111.1)
+      ✓ DNS updated to route all traffic through HAProxy (round-robin load balancing)
+      ✓ API/API-INT entries in addnhosts point to HAProxy (.1)
+      ✓ Backends: 3 masters ({{ sno_master0_ip }}, {{ sno_master1_ip }}, {{ sno_master2_ip }})
+      ✓ Services: API (6443), Ingress (80/443), MCS (22623)

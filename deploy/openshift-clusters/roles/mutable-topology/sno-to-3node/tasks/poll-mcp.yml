@@ -1,0 +1,159 @@
+---
+# Reusable MCP polling task for monitoring MCO rollouts
+# This uses two-phase monitoring to avoid instant completion when MCO is fast
+#
+# Parameters:
+#   - mco_poll_purpose: Description of what we're waiting for
+#   - mco_poll_timeout_minutes: Timeout in minutes for completion phase
+#   - mco_poll_fail_on_timeout: Whether to fail the playbook if timeout (default: true)
+#   - mco_poll_auto_fix_drain: Whether to auto-fix drain deadlock (default: false)
+#   - mco_poll_check_rendered_config: Whether to check generation/config matching (default: true)
+#                                     Set to false for standalone MC changes
+
+# Phase 1: Wait for MCO to START processing (see Updating=True OR generation change)
+- name: "[mco] Wait for MCO to start processing {{ mco_poll_purpose }} (up to 2 min)"
+  shell: |
+    MCP_JSON=$(oc get mcp master -o json 2>/dev/null) || exit 1
+
+    UPDATING=$(echo "$MCP_JSON" | jq -r '(.status.conditions[] | select(.type=="Updating") | .status) // "Unknown"')
+    OBSERVED_GEN=$(echo "$MCP_JSON" | jq -r '.status.observedGeneration // 0')
+    METADATA_GEN=$(echo "$MCP_JSON" | jq -r '.metadata.generation // 0')
+    UPDATED_COUNT=$(echo "$MCP_JSON" | jq -r '.status.updatedMachineCount // 0')
+    READY_COUNT=$(echo "$MCP_JSON" | jq -r '.status.readyMachineCount // 0')
+    MACHINE_COUNT=$(echo "$MCP_JSON" | jq -r '.status.machineCount // 0')
+
+    echo "STATUS=updating:${UPDATING},gen:${OBSERVED_GEN}/${METADATA_GEN},machines:${MACHINE_COUNT}/${UPDATED_COUNT}/${READY_COUNT}"
+
+    # MCO has started if ANY of these are true:
+    # - Updating=True (actively rolling out)
+    # - observedGeneration < metadata.generation (hasn't seen new spec yet)
+    # - Not all machines updated (updatedMachineCount < machineCount)
+    # - Not all machines ready (readyMachineCount < machineCount)
+
+    if [ "$UPDATING" = "True" ]; then
+      echo "MCO_STARTED=true (Updating=True)"
+      exit 0
+    fi
+
+    if [ "$OBSERVED_GEN" != "$METADATA_GEN" ]; then
+      echo "MCO_STARTED=true (generation mismatch: observed=$OBSERVED_GEN, metadata=$METADATA_GEN)"
+      exit 0
+    fi
+
+    if [ "$UPDATED_COUNT" != "$MACHINE_COUNT" ] || [ "$READY_COUNT" != "$MACHINE_COUNT" ]; then
+      echo "MCO_STARTED=true (machines not all updated/ready)"
+      exit 0
+    fi
+
+    # If we get here, MCO either hasn't started OR already completed
+    # Give it a few more seconds
+    echo "MCO_STARTED=false (still waiting)"
+    exit 1
+  environment: "{{ sno_oc_env }}"
+  register: mco_start_check
+  changed_when: false
+  failed_when: false
+  retries: 12  # 2 minutes (12 * 10s)
+  delay: 10
+  until: mco_start_check.rc == 0
+
+- name: "[mco] Display MCO start status"
+  debug:
+    msg: "{{ mco_start_check.stdout_lines | last }}"
+
+# Phase 2: Wait for MCO to COMPLETE processing
+- name: "[mco] Poll MCP master for {{ mco_poll_purpose }} completion"
+  shell: |
+    MCP_JSON=$(oc get mcp master -o json 2>/dev/null) || {
+      echo "STATUS=api_unreachable"
+      echo "RESULT=pending"
+      exit 0
+    }
+
+    # Extract MCP state using jq
+    UPDATED=$(echo "$MCP_JSON" | jq -r '(.status.conditions[] | select(.type=="Updated") | .status) // "Unknown"')
+    UPDATING=$(echo "$MCP_JSON" | jq -r '(.status.conditions[] | select(.type=="Updating") | .status) // "Unknown"')
+    DEGRADED=$(echo "$MCP_JSON" | jq -r '(.status.conditions[] | select(.type=="Degraded") | .status) // "Unknown"')
+    SPEC_CONFIG=$(echo "$MCP_JSON" | jq -r '.spec.configuration.name // ""')
+    STATUS_CONFIG=$(echo "$MCP_JSON" | jq -r '.status.configuration.name // ""')
+    MACHINE_COUNT=$(echo "$MCP_JSON" | jq -r '.status.machineCount // 0')
+    UPDATED_COUNT=$(echo "$MCP_JSON" | jq -r '.status.updatedMachineCount // 0')
+    READY_COUNT=$(echo "$MCP_JSON" | jq -r '.status.readyMachineCount // 0')
+    OBSERVED_GEN=$(echo "$MCP_JSON" | jq -r '.status.observedGeneration // 0')
+    METADATA_GEN=$(echo "$MCP_JSON" | jq -r '.metadata.generation // 0')
+
+    CORDONED_NODES=$(oc get nodes --no-headers 2>/dev/null | grep SchedulingDisabled | awk '{print $1}' || true)
+
+    echo "STATUS=machines:${MACHINE_COUNT}/${UPDATED_COUNT}/${READY_COUNT},updated:${UPDATED},updating:${UPDATING},degraded:${DEGRADED},gen:${OBSERVED_GEN}/${METADATA_GEN},config_match:$([ "$SPEC_CONFIG" = "$STATUS_CONFIG" ] && echo yes || echo no),cordoned:${CORDONED_NODES:-none}"
+
+    # Common completion criteria (always required):
+    # - All machines are updated and ready
+    # - Conditions show Updated=True, Updating=False, Degraded=False
+    COMMON_READY=false
+    if [ "$MACHINE_COUNT" = "$UPDATED_COUNT" ] && \
+       [ "$MACHINE_COUNT" = "$READY_COUNT" ] && \
+       [ "$UPDATED" = "True" ] && \
+       [ "$UPDATING" = "False" ] && \
+       [ "$DEGRADED" = "False" ]; then
+      COMMON_READY=true
+    fi
+
+    # For rendered config changes: also check generation and config matching
+    # For standalone MC changes: skip generation/config checks (they don't change)
+    CHECK_RENDERED="{{ mco_poll_check_rendered_config | default(true) | bool }}"
+
+    if [ "$CHECK_RENDERED" = "True" ]; then
+      # Rendered config mode: MCO has new spec to reconcile
+      # Additional checks: observedGeneration == generation, spec.config == status.config
+      if [ "$COMMON_READY" = "true" ] && \
+         [ "$OBSERVED_GEN" = "$METADATA_GEN" ] && \
+         [ "$SPEC_CONFIG" = "$STATUS_CONFIG" ]; then
+        echo "RESULT=done"
+        exit 0
+      fi
+    else
+      # Standalone MC mode: MC added/removed outside rendered config
+      # Just check common criteria (generation/config tracking won't change)
+      if [ "$COMMON_READY" = "true" ]; then
+        echo "RESULT=done"
+        exit 0
+      fi
+    fi
+
+    # Auto-fix drain deadlock for any cordoned node.
+    # On SNO→3node, MCD cordons a node before draining. If MCC cannot reach
+    # the node (api-int flap, RBAC timing) the drain annotation never advances
+    # and the node stays cordoned forever. Fix: uncordon, set lastAppliedDrain
+    # to the drain-<desired> value MCC is waiting for, restart MCC.
+    if [ -n "$CORDONED_NODES" ] && [ "{{ mco_poll_auto_fix_drain | default(false) | bool }}" = "True" ]; then
+      DESIRED=$(oc get mcp master -o jsonpath='{.spec.configuration.name}' 2>/dev/null || echo "")
+      for NODE_NAME in $CORDONED_NODES; do
+        echo "DRAIN_FIX: Fixing drain deadlock on $NODE_NAME (desired=${DESIRED})..."
+
+        oc adm uncordon "$NODE_NAME" 2>&1 || true
+
+        if [ -n "$DESIRED" ]; then
+          oc annotate node "$NODE_NAME" \
+            "machineconfiguration.openshift.io/lastAppliedDrain=drain-${DESIRED}" \
+            --overwrite 2>&1 || true
+          echo "DRAIN_FIX: Set lastAppliedDrain=drain-${DESIRED} on $NODE_NAME"
+        fi
+      done
+
+      oc delete pod -n openshift-machine-config-operator \
+        -l k8s-app=machine-config-controller 2>&1 || true
+      echo "DRAIN_FIX: Restarted MCC pod"
+    fi
+
+    echo "RESULT=pending"
+  environment: "{{ sno_oc_env }}"
+  register: mcp_poll_result
+  until: "'RESULT=done' in mcp_poll_result.stdout"
+  retries: "{{ (mco_poll_timeout_minutes | int * 60 / 30) | int }}"
+  delay: 30
+  changed_when: false
+  failed_when: mco_poll_fail_on_timeout | default(true) | bool and mcp_poll_result.rc != 0
+
+- name: "[mco] Display MCP poll result"
+  debug:
+    msg: "{{ mcp_poll_result.stdout }}"

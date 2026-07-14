@@ -26,7 +26,8 @@ sno_libvirt_bridge: ostestbm
 sno_rhcos_live_iso: ""
 
 # Timeouts
-sno_mco_timeout_minutes: 45
+sno_dns_transition_timeout_minutes: 20
+sno_topology_mco_timeout_minutes: 20
 sno_node_join_timeout_minutes: 20
 sno_etcd_timeout_minutes: 15
 

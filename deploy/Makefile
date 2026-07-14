@@ -67,7 +67,7 @@ clean-spoke:
 	@./openshift-clusters/scripts/clean-spoke.sh
 
 clean-mutable-topology:
-	@./openshift-clusters/scripts/clean-mutable-topology.sh
+	@./openshift-clusters/scripts/clean-mutable-topology.sh $(EXTRA_ARGS)
 
 ssh:
 	@./aws-hypervisor/scripts/ssh.sh
@@ -147,7 +147,7 @@ baremetal-wizard:
 	@./openshift-clusters/scripts/baremetal-wizard.sh
 
 sno-to-3node:
-	@./openshift-clusters/scripts/sno-to-3node.sh
+	@./openshift-clusters/scripts/sno-to-3node.sh $(EXTRA_ARGS)
 
 patch-nodes:
 	@./openshift-clusters/scripts/patch-nodes.sh
