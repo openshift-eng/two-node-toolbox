@@ -65,13 +65,12 @@
     - not sno_already_ha
     - stop_before_transition_confirm | default(false) | bool
 
-- name: "[topology] Initiate topology transition in background (monitors operators for 10min)"
+- name: "[topology] Initiate topology transition (patches Infrastructure.spec)"
   shell: |
     oc adm transition topology --control-plane=HighlyAvailable --infrastructure=HighlyAvailable --confirm
   environment: "{{ sno_oc_env }}"
-  async: 900
-  poll: 0
-  register: transition_async
+  register: transition_result
+  changed_when: false
   when:
     - topology_cmd_check.rc == 0
     - not sno_already_ha
@@ -94,36 +93,38 @@
     - topology_cmd_check.rc == 0
     - not sno_already_ha
 
-- name: "[topology] Check async transition command status if spec update failed"
-  async_status:
-    jid: "{{ transition_async.ansible_job_id }}"
-  register: transition_job_result
+- name: "[topology] Check if transition command succeeded"
+  fail:
+    msg: |
+      Topology transition command failed.
+
+      Command output:
+      {{ transition_result.stdout if transition_result.stdout else 'No output' }}
+
+      Command errors:
+      {{ transition_result.stderr if transition_result.stderr else 'No errors' }}
   when:
     - topology_cmd_check.rc == 0
     - not sno_already_ha
-    - topo_spec_verify.stdout != "HighlyAvailable"
+    - transition_result.rc != 0
 
-- name: "[topology] Display transition command output"
+- name: "[topology] Check if Infrastructure.spec was updated"
   fail:
     msg: |
-      Topology transition command failed to update Infrastructure.spec after 10 seconds.
+      Topology transition command succeeded but Infrastructure.spec was not updated after 10 seconds.
 
       Infrastructure.spec.controlPlaneTopology: {{ topo_spec_verify.stdout if topo_spec_verify.stdout else 'unable to read' }}
       Expected: HighlyAvailable
 
-      Transition command output:
-      {{ transition_job_result.stdout if transition_job_result.stdout is defined else 'No output available' }}
-
-      Transition command stderr:
-      {{ transition_job_result.stderr if transition_job_result.stderr is defined else 'No errors captured' }}
+      This may indicate a timing issue. Check the transition command output above.
   when:
     - topology_cmd_check.rc == 0
     - not sno_already_ha
     - topo_spec_verify.stdout != "HighlyAvailable"
 
-- name: "[topology] Display transition started"
+- name: "[topology] Display transition initiated"
   debug:
-    msg: "✓ Topology transition started in background - spec updated to HighlyAvailable. Will monitor for status update and apply network fixes."
+    msg: "✓ Topology transition initiated - Infrastructure.spec updated to HighlyAvailable. CCO will reconcile status and operators will reconfigure."
   when:
     - topology_cmd_check.rc == 0
     - not sno_already_ha
@@ -204,7 +205,7 @@
 
 - name: "[topology] Topology transition complete (via CCO)"
   debug:
-    msg: "✓ Topology spec and status updated to HighlyAvailable by cluster-config-operator. Cluster will begin scaling control plane components."
+    msg: "✓ Topology spec and status updated to HighlyAvailable by cluster-config-operator. Operators will reconfigure to the new topology."
   when:
     - topology_cmd_check.rc == 0
     - not sno_already_ha
@@ -212,7 +213,7 @@
 
 - name: "[topology] Topology transition complete (via manual fallback)"
   debug:
-    msg: "✓ Topology spec and status updated to HighlyAvailable via manual patch. Cluster will begin scaling control plane components. (CCO reconciliation timed out - see warning above)"
+    msg: "✓ Topology spec and status updated to HighlyAvailable via manual patch. Operators will reconfigure to the new topology. (CCO reconciliation timed out - see warning above)"
   when:
     - topology_cmd_check.rc == 0
     - not sno_already_ha
