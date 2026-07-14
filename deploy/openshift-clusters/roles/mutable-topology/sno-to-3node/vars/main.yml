@@ -1,4 +1,7 @@
 ---
+# Control flags
+stop_before_transition_confirm: false  # Set to true to stop before --confirm (for manual testing)
+
 sno_dev_scripts_path: "{{ dev_scripts_path | default('openshift-metal3/dev-scripts') }}"
 sno_kubeconfig_resolved: >-
   {{ sno_kubeconfig if sno_kubeconfig

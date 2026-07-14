@@ -147,7 +147,7 @@ baremetal-wizard:
 	@./openshift-clusters/scripts/baremetal-wizard.sh
 
 sno-to-3node:
-	@./openshift-clusters/scripts/sno-to-3node.sh
+	@./openshift-clusters/scripts/sno-to-3node.sh $(EXTRA_ARGS)
 
 patch-nodes:
 	@./openshift-clusters/scripts/patch-nodes.sh

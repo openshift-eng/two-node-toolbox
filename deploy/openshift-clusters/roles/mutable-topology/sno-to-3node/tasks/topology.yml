@@ -43,6 +43,28 @@
     - topology_cmd_check.rc == 0
     - not sno_already_ha
 
+- name: "[topology] Stop before transition confirmation (stop_before_transition_confirm=true)"
+  block:
+    - name: "[topology] Display staged state message"
+      debug:
+        msg: |
+          ✓ Transition staged and ready to confirm
+
+          The cluster is ready for topology transition. To complete manually:
+            $ oc adm transition topology --control-plane=HighlyAvailable --infrastructure=HighlyAvailable --confirm
+
+          To resume and complete the transition automatically, rerun:
+            $ make sno-to-3node
+
+          Playbook stopped as requested (stop_before_transition_confirm=true)
+
+    - name: "[topology] End playbook at staged state"
+      meta: end_play
+  when:
+    - topology_cmd_check.rc == 0
+    - not sno_already_ha
+    - stop_before_transition_confirm | default(false) | bool
+
 - name: "[topology] Initiate topology transition in background (monitors operators for 10min)"
   shell: |
     oc adm transition topology --control-plane=HighlyAvailable --infrastructure=HighlyAvailable --confirm
