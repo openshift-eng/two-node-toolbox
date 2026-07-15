@@ -452,6 +452,8 @@ validate_access() {
         access_hint "$IMG_REGISTRY"
         return 1
     fi
+
+    return 0
 }
 
 # ---------------------------------------------------------------------------
