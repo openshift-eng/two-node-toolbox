@@ -116,6 +116,8 @@ On failure:
 
 ### Step 3: Run doctor
 
+Before running Make, normalize the topology: if the user said `tnf`, use `fencing`; if `tna`, use `arbiter`. The `<topology>` below must be `arbiter`, `fencing`, or `sno`.
+
 ```bash
 cd deploy && make doctor <topology>-<method>
 ```

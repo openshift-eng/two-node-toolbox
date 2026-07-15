@@ -31,7 +31,7 @@ ok()   { [[ "$QUIET" == "true" ]] || msg_ok "$1"; }
 
 valreq() { [[ -n "${2-}" && "$2" != -* ]]; }
 
-fetch_url() { curl -fsS --connect-timeout 30 "$@"; }
+fetch_url() { curl -fsS --connect-timeout 30 --max-time 120 "$@"; }
 
 require_json_tool() {
     command -v jq >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1 || {

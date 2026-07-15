@@ -364,6 +364,7 @@ if [[ -f "$OUTPUT" ]]; then
     fi
     old_image=$(grep -oP '^export OPENSHIFT_RELEASE_IMAGE=\K.*' "$OUTPUT" 2>/dev/null || true)
     cp "$OUTPUT" "${OUTPUT}.bak"
+    chmod 600 "${OUTPUT}.bak"
     msg_info "Backed up existing config to ${OUTPUT}.bak"
     [[ -z "${old_image:-}" ]] || msg_info "Previous release image: ${old_image}"
 fi
@@ -387,7 +388,7 @@ if ! self_check "$TMPFILE" "$TOPOLOGY"; then
     exit 5
 fi
 
-cp "$TMPFILE" "$OUTPUT"
+install -m 600 "$TMPFILE" "$OUTPUT"
 msg_ok "Config written: ${OUTPUT}"
 msg_info "Deploy targets auto-sync via make sync-config"
 
