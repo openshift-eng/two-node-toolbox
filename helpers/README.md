@@ -6,6 +6,8 @@ Utilities for OpenShift cluster operations including package management and clus
 
 This directory contains multiple helper tools for various OpenShift cluster operations:
 
+- **Release Image Resolver**: Resolves an OCP version spec (e.g. `4.21-nightly`, `4.20`) to a concrete pullspec via the release controller or quay.io
+- **Config Preparer**: Generates a dev-scripts config file from the example template with architecture-aware defaults and constraint enforcement
 - **Resource Agent Patching**: Scripts and playbooks (recommended usage) for installing RPM packages on cluster nodes using rpm-ostree's override functionality
 - **Fencing Validation**: Tools for validating two-node cluster fencing configuration and health
 - **arm64 Metal3 Image Builder**: Builds arm64 variants of Metal3 images for aarch64 hypervisors (Graviton)
@@ -27,6 +29,83 @@ This directory contains multiple helper tools for various OpenShift cluster oper
 - Two-node cluster with fencing topology
 
 ## Available Tools
+
+### Release Image Resolver
+
+Resolves an OCP version spec to a concrete release image pullspec. Supports nightly builds (from the CI release controller) and GA/EC/RC releases (from quay.io).
+
+**Usage:**
+
+```bash
+# Latest 4.21 GA for x86_64
+./resolve-release-image.sh --version 4.21
+
+# Latest 4.22 nightly on aarch64
+./resolve-release-image.sh --version 4.22-nightly --arch aarch64
+
+# Pin by digest (for agent installs)
+./resolve-release-image.sh --version 4.21 --digest --pull-secret ../config/pull-secret.json
+
+# Validate access to a CI nightly
+./resolve-release-image.sh --version 4.21-nightly --validate-access --ci-token "$CI_TOKEN"
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--version SPEC` | `X.Y`, `X.Y-KIND` (nightly/ec/rc/prerelease/ga), or `X.Y.Z` |
+| `--pullspec IMAGE` | Explicit image passthrough |
+| `--arch ARCH` | `x86_64` or `aarch64` (default: `x86_64`) |
+| `--digest` | Output `repo@sha256:...` instead of tagged ref |
+| `--pull-secret PATH` | Pull secret JSON (default: `config/pull-secret.json`) |
+| `--validate-access` | Verify the resolved image is pullable |
+| `--ci-token TOKEN` | Bearer token for `registry.ci.openshift.org` |
+
+**Exit codes:** 0 success, 2 usage error, 3 resolution failed, 4 digest failed, 5 access denied.
+
+**Prerequisites:** `curl`, `jq` or `python3`. Optional: `oc` (preferred for digest resolution).
+
+### Config Preparer
+
+Generates a dev-scripts config file from the example template, enforcing the architecture constraint matrix and validating the result against the Ansible role's expected patterns.
+
+**Usage:**
+
+```bash
+# Fencing IPI with a resolved image
+./prepare-config.sh --topology fencing --method ipi \
+  --release-image quay.io/.../ocp-release:4.21.3-multi \
+  --ci-token "$CI_TOKEN"
+
+# SNO agent on aarch64 with custom Metal3 tag
+./prepare-config.sh --topology sno --method agent \
+  --release-image quay.io/.../ocp-release@sha256:abc123 \
+  --ci-token "$CI_TOKEN" --arch aarch64 --metal3-tag 2026-07
+
+# With dev-scripts fork override
+./prepare-config.sh --topology tnf --method ipi \
+  --release-image quay.io/.../ocp-release:4.21.3-multi \
+  --ci-token "$CI_TOKEN" \
+  --ds-repo https://github.com/user/dev-scripts --ds-branch fix/my-change
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--topology TOPO` | `arbiter`/`tna`, `fencing`/`tnf`, or `sno` |
+| `--method METHOD` | `ipi` or `agent` |
+| `--release-image IMAGE` | Resolved pullspec |
+| `--ci-token TOKEN` | CI bearer token |
+| `--ip-stack STACK` | `v4`, `v6`, or `v4v6` (default: `v4`) |
+| `--arch ARCH` | `x86_64` or `aarch64` (default: `x86_64`) |
+| `--metal3-tag TAG` | aarch64 Metal3 image tag (default: `2026-06`) |
+| `--ds-repo URL` | Dev-scripts fork URL |
+| `--ds-branch BRANCH` | Dev-scripts fork branch |
+| `--force` | Overwrite existing config (backs up to `.bak`) |
+
+**Exit codes:** 0 success, 2 usage error, 3 constraint violation, 4 output exists, 5 self-check failed.
 
 ### Force New Cluster
 

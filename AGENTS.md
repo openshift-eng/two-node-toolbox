@@ -40,6 +40,11 @@ make status            # Show status dashboard (instance, cluster VMs, proxy, cl
 make inventory         # Update inventory.ini with current instance IP
 make doctor            # Validate configuration and prerequisites (read-only)
 make doctor <type>     # Validate strictly for a specific cluster type (e.g. fencing-kcli)
+
+# Installation preparation (resolve image + generate config)
+# /prepare tnf ipi aws 4.21     # Claude skill — interactive or agent-driven
+helpers/resolve-release-image.sh --version 4.21        # Resolve version → pullspec
+helpers/prepare-config.sh --topology fencing --method ipi --release-image <pullspec> --ci-token <token>
 ```
 
 ### Ansible Deployment Methods
