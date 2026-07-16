@@ -66,11 +66,14 @@ section() {
 }
 
 usage() {
-  echo "Usage: $0 [cluster-type...]"
+  echo "Usage: $0 [--aws] [cluster-type...]"
   echo ""
   echo "Read-only configuration preflight. With no arguments, runs common checks"
   echo "plus every auto-detected section. Naming a cluster type makes its"
   echo "deployment method's checks mandatory."
+  echo ""
+  echo "Options:"
+  echo "  --aws    Require instance.env (promotes missing instance.env to FAIL)"
   echo ""
   echo "Valid cluster types: fencing-ipi fencing-agent fencing-assisted"
   echo "                     fencing-kcli arbiter-ipi arbiter-agent arbiter-kcli"
@@ -83,7 +86,9 @@ TARGETED=0
 NEED_DEVSCRIPTS=0
 NEED_KCLI=0
 NEED_ASSISTED=0
+NEED_AWS=0
 REQUIRED_TOPOLOGIES=" "
+TARGETED_TYPES=""
 
 for arg in "$@"; do
   case "${arg}" in
@@ -91,21 +96,27 @@ for arg in "$@"; do
       usage
       exit 0
       ;;
+    --aws)
+      NEED_AWS=1
+      ;;
     fencing-assisted)
       # assisted deploys the hub via fencing-ipi, so it needs the dev-scripts config
       TARGETED=1
       NEED_DEVSCRIPTS=1
       NEED_ASSISTED=1
       REQUIRED_TOPOLOGIES+="fencing "
+      TARGETED_TYPES+=" ${arg}"
       ;;
     arbiter-ipi|arbiter-agent|fencing-ipi|fencing-agent|sno-ipi|sno-agent)
       TARGETED=1
       NEED_DEVSCRIPTS=1
       REQUIRED_TOPOLOGIES+="${arg%-*} "
+      TARGETED_TYPES+=" ${arg}"
       ;;
     arbiter-kcli|fencing-kcli)
       TARGETED=1
       NEED_KCLI=1
+      TARGETED_TYPES+=" ${arg}"
       ;;
     *)
       echo "Error: Unknown cluster type: '${arg}'"
@@ -130,7 +141,10 @@ tool_hint() {
 
 echo "two-node-toolbox configuration preflight (read-only)"
 if [[ "${TARGETED}" -eq 1 ]]; then
-  check_note "validating strictly for: $*"
+  check_note "validating strictly for:${TARGETED_TYPES}"
+fi
+if [[ "${NEED_AWS}" -eq 1 ]]; then
+  check_note "AWS mode: instance.env is required"
 fi
 
 # --- Required tools ---
@@ -235,7 +249,12 @@ fi
 section "AWS hypervisor (instance.env)"
 
 if [[ ! -f "${INSTANCE_ENV}" ]]; then
-  check_note "section skipped: instance.env not found (only needed for the AWS hypervisor flow) - to use it: 'cp ${CONFIG_DIR}/instance.env.template ${CONFIG_DIR}/instance.env' and edit"
+  if [[ "${NEED_AWS}" -eq 1 ]]; then
+    check_fail "instance.env missing (required for AWS deployment)" \
+      "cp ${CONFIG_DIR}/instance.env.template ${CONFIG_DIR}/instance.env && edit it, then run 'make sync-config'"
+  else
+    check_note "section skipped: instance.env not found (only needed for the AWS hypervisor flow) - to use it: 'cp ${CONFIG_DIR}/instance.env.template ${CONFIG_DIR}/instance.env' and edit"
+  fi
 else
   # set +u: the deployment scripts never source instance.env under nounset,
   # so the probe must not be stricter than real usage

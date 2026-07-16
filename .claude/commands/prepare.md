@@ -59,7 +59,7 @@ Interactive prompting is only for humans invoking with missing arguments.
 ## Architecture Determination
 
 1. `arch=` key wins if provided
-2. medium=aws: read `INSTANCE_TYPE` from `config/instance.env` — Graviton families (`c7g`, `m7g`, `r7g`, `c6g`, `m6g`, `r6g`, etc.) → `aarch64`; otherwise `x86_64`
+2. medium=aws: read `EC2_INSTANCE_TYPE` from `config/instance.env` — Graviton families (`c7g`, `m7g`, `r7g`, `c6g`, `m6g`, `r6g`, etc.) → `aarch64`; otherwise `x86_64`
 3. medium=external: default `x86_64` with a note that `arch=aarch64` can override
 
 ## Constraint Matrix
@@ -77,7 +77,17 @@ These are enforced in the helper scripts. If the user hits one, explain why and 
 
 Run each step as a separate Bash call. Branch on exit codes.
 
-### Step 1: Resolve release image
+### Step 1: Bootstrap worktree config (worktrees only)
+
+```bash
+helpers/sync-worktree-config.sh
+```
+
+The script auto-detects whether it is running in a worktree. If so, it copies essential config files (`pull-secret.json`, `instance.env`, `config_*.sh`) from the main checkout into the worktree's `config/` folder — picking the newer of `config/<file>` and the canonical sync destination when both exist. If not a worktree, it exits silently.
+
+After this step, `config/pull-secret.json` must exist. If it is still missing, fail with the standard prerequisites block.
+
+### Step 2: Resolve release image
 
 ```bash
 helpers/resolve-release-image.sh \
@@ -94,13 +104,36 @@ Capture stdout (single-line pullspec). On failure:
 - Exit 3: no matching release → suggest checking version number
 - Exit 5: access denied → point to `/setup` for credentials
 
-### Step 2: Generate config
+### Step 3: Ensure instance.env exists (medium=aws only)
+
+Skip this step when medium is not `aws`.
+
+Check if `config/instance.env` exists:
+- **If present**: proceed silently (do not re-copy the template over user edits)
+- **If missing**: copy the template and warn about defaults
+
+```bash
+cp config/instance.env.template config/instance.env
+```
+
+After copying, emit a warning (not a failure — the defaults are usable):
+```
+NOTE: Created config/instance.env from template with defaults:
+  - EC2_INSTANCE_TYPE=c5n.metal (x86_64 Intel)
+  - REGION=us-west-2
+  - AWS_PROFILE=microshift-dev
+Review and edit config/instance.env if these defaults are not suitable.
+```
+
+Do NOT prompt for edits when all positional args are present (non-interactive contract). Just warn and continue.
+
+### Step 4: Generate config
 
 ```bash
 helpers/prepare-config.sh \
   --topology <topology> \
   --method <method> \
-  --release-image <pullspec from step 1> \
+  --release-image <pullspec from step 2> \
   --ci-token <ci_token> \
   --ip-stack <stack> \
   --arch <arch> \
@@ -114,17 +147,25 @@ On failure:
 - Exit 4: config exists → ask if they want `force=true` (human) or tell agent callers to pass `force=true`
 - Exit 5: self-check failed → likely template drift, report verbatim
 
-### Step 3: Run doctor
+### Step 5: Run doctor
 
 Before running Make, normalize the topology: if the user said `tnf`, use `fencing`; if `tna`, use `arbiter`. The `<topology>` below must be `arbiter`, `fencing`, or `sno`.
 
+**medium=aws** (default — no AWS= override needed):
 ```bash
-cd deploy && make doctor <topology>-<method>
+cd deploy && make sync-config && make doctor <topology>-<method>
 ```
+
+**medium=external:**
+```bash
+cd deploy && make doctor AWS=0 <topology>-<method>
+```
+
+The `sync-config` call propagates `config/instance.env` to the canonical location (`deploy/aws-hypervisor/instance.env`) that doctor reads. `AWS=0` opts out of the instance.env requirement for external hosts.
 
 Relay FAIL lines verbatim. Doctor is read-only — it won't break anything.
 
-### Step 4: Print deployment commands (never run them)
+### Step 6: Print deployment commands (never run them)
 
 **medium=aws:**
 ```
