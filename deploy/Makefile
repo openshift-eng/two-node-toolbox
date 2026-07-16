@@ -151,8 +151,19 @@ sno-to-3node:
 
 patch-nodes:
 	@./openshift-clusters/scripts/patch-nodes.sh
+
+ssh-node:
+ifndef node
+	@echo "Usage: make ssh-node node=<0|1> [cmd=\"command\"]"
+	@echo "Examples:"
+	@echo "  make ssh-node node=0"
+	@echo "  make ssh-node node=1 cmd=\"sudo pcs status\""
+	@exit 1
+endif
+	@./openshift-clusters/scripts/ssh-node.sh $(node) $(if $(cmd),$(cmd))
+
 get-tnf-logs:
-	@./openshift-clusters/scripts/get-tnf-logs.sh
+	 @./openshift-clusters/scripts/get-tnf-logs.sh
 
 help:
 	@echo "Available commands:"
@@ -209,5 +220,7 @@ help:
 	@echo "  baremetal-wizard          - Interactive wizard to create baremetal node inventory"
 	@echo ""
 	@echo "Cluster Utilities:"
-	@echo "  get-tnf-logs         - Collect pacemaker and etcd logs from cluster nodes"
+	@echo "  ssh-node node=<0|1> [cmd=\"..\"] - SSH into cluster node"
+	@echo "                                    e.g. make ssh-node node=0 cmd=\"sudo pcs status\""
+	@echo "  get-tnf-logs                    - Collect pacemaker and etcd logs from cluster nodes"
 
