@@ -11,6 +11,9 @@ ansible-lint:
 test-resource-agents:
 	@./helpers/resource-agents-build/local-build-test.sh $(ARGS)
 
+test-prepare-online:
+	@./hack/test-prepare-online.sh $(ARGS)
+
 verify:
 	VALIDATE_ONLY=true $(MAKE) shellcheck
 	VALIDATE_ONLY=true $(MAKE) yamlfmt
