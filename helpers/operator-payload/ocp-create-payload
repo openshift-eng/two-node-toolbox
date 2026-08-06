@@ -1,0 +1,227 @@
+#!/usr/bin/bash
+#
+# Create custom OCP payload with image overrides
+# Usage: ./ocp-create-payload [options] <profile1> [profile2...]
+#
+# Examples:
+#   ./ocp-create-payload ceo
+#   ./ocp-create-payload ceo cno -n quay.io/myrepo -t dev
+#
+
+set -euo pipefail
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="${SCRIPT_DIR}/operators.conf"
+PROFILE_ENV="${SCRIPT_DIR}/profile.env"
+
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/operator-config.sh"
+
+# Load profile.env before setting defaults.
+# shellcheck source=/dev/null
+if [[ -f "$PROFILE_ENV" ]]; then
+    source "$PROFILE_ENV"
+fi
+
+# Derive defaults from profile.env (if loaded) or use placeholders
+DEFAULT_NAMESPACE="${QUAY_NAMESPACE:-quay.io/<your-namespace>}"
+DEFAULT_TAG="${IMAGE_TAG:-latest}"
+DEFAULT_AUTH_FILE="${REGISTRY_AUTH_FILE:-$HOME/.config/containers/auth.json}"
+DEFAULT_TARGET_IMAGE="${TARGET_IMAGE:-quay.io/<your-namespace>/custom-ocp-payload:test}"
+
+usage() {
+    cat <<EOF
+Usage: $0 [options] <profile1> [profile2...]
+
+Create custom OCP payload with operator image overrides.
+
+OPTIONS:
+    -n, --namespace NAMESPACE   Registry namespace (default: ${DEFAULT_NAMESPACE})
+    -t, --tag TAG              Image tag (default: ${DEFAULT_TAG})
+    -b, --base-release IMAGE   Base release image (required if OCP_VERSION not set in profile.env)
+    -o, --target-image IMAGE   Target custom payload image (default: ${DEFAULT_TARGET_IMAGE})
+    -h, --help                 Show this help
+
+PROFILES:
+    Operator profiles from operators.conf (e.g., ceo, cno, ovnk)
+
+EXAMPLES:
+    # Specify base release
+    $0 ceo -b registry.ci.openshift.org/ocp/release-5:5.0.0-0.nightly-2026-07-01-125918
+
+    # Use OCP_VERSION from profile.env for base release
+    $0 ceo
+
+    # Override namespace and tag
+    $0 ceo cno -n quay.io/myrepo -t dev
+
+    # Custom target image
+    $0 ceo -o quay.io/myrepo/custom-payload:test
+
+CONFIGURATION:
+    Profile settings loaded from:
+    1. operators.conf (operator metadata)
+    2. profile.env (registry namespace, image defaults, and OCP_VERSION base release)
+
+EOF
+}
+
+# Parse command line
+NAMESPACE="${DEFAULT_NAMESPACE}"
+TAG="${DEFAULT_TAG}"
+BASE_RELEASE="${OCP_VERSION:-}"
+TARGET_IMAGE="${DEFAULT_TARGET_IMAGE}"
+declare -a PROFILES=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -n|--namespace)
+            if [[ -z "${2:-}" ]] || [[ "$2" == -* ]]; then
+                echo -e "${RED}Error: -n/--namespace requires a value${NC}"
+                exit 1
+            fi
+            NAMESPACE="$2"
+            shift 2
+            ;;
+        -t|--tag)
+            if [[ -z "${2:-}" ]] || [[ "$2" == -* ]]; then
+                echo -e "${RED}Error: -t/--tag requires a value${NC}"
+                exit 1
+            fi
+            TAG="$2"
+            shift 2
+            ;;
+        -b|--base-release)
+            if [[ -z "${2:-}" ]] || [[ "$2" == -* ]]; then
+                echo -e "${RED}Error: -b/--base-release requires a value${NC}"
+                exit 1
+            fi
+            BASE_RELEASE="$2"
+            shift 2
+            ;;
+        -o|--target-image)
+            if [[ -z "${2:-}" ]] || [[ "$2" == -* ]]; then
+                echo -e "${RED}Error: -o/--target-image requires a value${NC}"
+                exit 1
+            fi
+            TARGET_IMAGE="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            PROFILES+=("$1")
+            shift
+            ;;
+    esac
+done
+
+# Validate inputs
+if [[ ${#PROFILES[@]} -eq 0 ]]; then
+    echo -e "${RED}Error: No operator profiles specified${NC}"
+    echo ""
+    usage
+    exit 1
+fi
+
+# Validate profile.env was loaded and has required settings
+if [[ ! -f "$PROFILE_ENV" ]]; then
+    echo -e "${RED}Error: profile.env not found${NC}"
+    echo "Please copy profile.env.template to profile.env and configure your settings"
+    exit 1
+fi
+
+if [[ -z "${QUAY_NAMESPACE:-}" ]]; then
+    echo -e "${RED}Error: QUAY_NAMESPACE not set in profile.env${NC}"
+    echo "Please set QUAY_NAMESPACE to your quay.io namespace"
+    exit 1
+fi
+
+# Load operators.conf
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo -e "${RED}Error: Config file not found: $CONFIG_FILE${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}Parsing operators.conf...${NC}"
+parse_config "$CONFIG_FILE"
+
+if [[ -z "$BASE_RELEASE" ]]; then
+    echo -e "${RED}Error: Base release not set${NC}"
+    echo "Use -b/--base-release or set OCP_VERSION in $PROFILE_ENV"
+    exit 1
+fi
+
+# Generate image overrides
+echo ""
+echo "========================================"
+echo "Generating image overrides"
+echo "========================================"
+echo "Profiles: ${PROFILES[*]}"
+echo "Namespace: ${NAMESPACE}"
+echo "Tag: ${TAG}"
+echo ""
+
+OVERRIDE_ARGS=()
+for profile in "${PROFILES[@]}"; do
+    # Get image name from config
+    image_name=$(get_config "$profile" "name")
+
+    if [[ -z "$image_name" ]]; then
+        echo -e "${RED}✗ Profile '${profile}' not found in ${CONFIG_FILE}${NC}"
+        exit 1
+    fi
+
+    # Construct full image reference
+    image_ref="${NAMESPACE}/${image_name}:${TAG}"
+
+    echo -e "${GREEN}✓ ${image_name}=${image_ref}${NC}"
+    OVERRIDE_ARGS+=("${image_name}=${image_ref}")
+done
+
+echo ""
+echo "========================================"
+echo "Creating custom OCP payload"
+echo "========================================"
+echo "Base release: ${BASE_RELEASE}"
+echo "Target image: ${TARGET_IMAGE}"
+echo "Auth file: ${DEFAULT_AUTH_FILE}"
+echo ""
+
+# Check auth file exists
+if [[ ! -f "$DEFAULT_AUTH_FILE" ]]; then
+    echo -e "${RED}Error: Registry auth file not found: ${DEFAULT_AUTH_FILE}${NC}"
+    echo "Please ensure your pull secret is available at this path"
+    exit 1
+fi
+
+# Build the oc adm release new command
+set -x
+oc adm release new -n ocp \
+    --registry-config="$DEFAULT_AUTH_FILE" \
+    --from-release="$BASE_RELEASE" \
+    --to-image="$TARGET_IMAGE" \
+    "${OVERRIDE_ARGS[@]}"
+set +x
+
+echo ""
+echo -e "${GREEN}========================================"
+echo "Custom payload created."
+echo "========================================${NC}"
+echo ""
+echo "Payload image: ${TARGET_IMAGE}"
+echo ""
+echo "To use this payload:"
+echo "  1. Update your dev-scripts config (config_sno.sh / config_fencing.sh) to use this image:"
+echo "     export OPENSHIFT_RELEASE_IMAGE=${TARGET_IMAGE}"
+echo ""
+echo "  2. Or deploy with oc adm release extract:"
+echo "     oc adm release extract --tools ${TARGET_IMAGE}"
+echo ""
