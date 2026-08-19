@@ -10,6 +10,7 @@ This directory contains multiple helper tools for various OpenShift cluster oper
 - **Fencing Validation**: Tools for validating two-node cluster fencing configuration and health
 - **arm64 Metal3 Image Builder**: Builds arm64 variants of Metal3 images for aarch64 hypervisors (Graviton)
 - **Custom OCP 5.x payload (optional)**: `resource-agents-build/custom-payload.sh` to build a custom RHCOS layer from the resource-agents RPM and publish a custom release image with `oc adm release new`
+- **Operator Payload Builder**: `operator-payload/` scripts to build custom OCP payloads with operator overrides for testing
 
 ## Requirements
 
@@ -396,6 +397,26 @@ ex:
         }
 }
 ```
+
+### Operator Payload Builder
+
+Build custom OCP payloads with operator overrides for testing custom operator code.
+
+**Location:** `operator-payload/`
+
+**Usage:**
+
+```bash
+cd helpers/operator-payload
+
+# Build operator image and push to registry
+./build-operators.sh ceo
+
+# Create custom payload with operator override
+./ocp-create-payload ceo -b <base-release> -o <target-image>
+```
+
+**See:** `operator-payload/README.md` for detailed documentation
 
 ## Notes
 
