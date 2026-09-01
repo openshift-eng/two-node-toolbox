@@ -1,7 +1,7 @@
 ---
 - name: "[verify] Wait for topology transition to complete (up to 20 minutes)"
   shell: |
-    oc adm transition topology status 2>&1
+    oc adm transition status 2>&1
   environment: "{{ sno_oc_env }}"
   register: transition_status
   changed_when: false
