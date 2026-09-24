@@ -9,6 +9,9 @@ aliases:
   - jaypoulz
   - fonta-rh
   - copejon
+  - vimauro
+  - fracappa
+  - lucaconsalvi
   edge-enablement-reviewers:
   - jerpeter1
   - eggfoobar
@@ -17,6 +20,9 @@ aliases:
   - jaypoulz
   - fonta-rh
   - copejon
+  - vimauro
+  - fracappa
+  - lucaconsalvi
   team-dragonfly-approvers:
   - slintes
   - clobrano 
