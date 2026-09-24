@@ -183,6 +183,16 @@ For more information on STONITH, go to the [official RHEL HA documentation](http
 
 For clusters using the fencing topology, the cluster-etcd-operator (CEO) discovers BareMetalHost resources and configures STONITH automatically during installation. No manual Redfish configuration is required.
 
+##### Fencing Credential Identifier
+
+By default, fencing credentials identify nodes by hostname. If your environment requires MAC address-based identification instead (for example, when hostnames are not known or stable during installation), set `FENCING_CREDENTIAL_IDENTIFIER=macAddress` in your fencing config file:
+
+```bash
+export FENCING_CREDENTIAL_IDENTIFIER=macAddress
+```
+
+Valid values are `hostname` (default) and `macAddress`. See the [upstream dev-scripts config_example.sh](https://github.com/openshift-metal3/dev-scripts/blob/master/config_example.sh) for the full reference.
+
 
 ### Optional: Attaching Extra Disks
 

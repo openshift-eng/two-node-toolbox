@@ -8,6 +8,12 @@ export NUM_MASTERS=2
 # Ensure consistent BMC driver across all hosts for automatic fencing configuration
 export BMC_DRIVER=redfish
 
+# Controls the identifier used in fencing credentials for Two Node Fencing.
+# Set to "hostname" to identify nodes by hostname (default), or "macAddress"
+# to identify nodes by their boot MAC address.
+#
+#export FENCING_CREDENTIAL_IDENTIFIER=hostname
+
 # If you want to avoid using the CI_TOKEN, uncomment this variable, but it has side effects.
 # You can read more on this here: https://github.com/openshift-metal3/dev-scripts/blob/3f070cfd36977381a186cadfb44887856d652bed/config_example.sh#L21
 # export OPENSHIFT_CI="true"
