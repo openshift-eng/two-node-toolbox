@@ -37,6 +37,7 @@ Resolves an OpenShift release image, generates a dev-scripts config file, valida
 | version | `4.21`, `4.21 nightly`, `4.22 EC`, etc. | required |
 | ip-stack | `v4`, `v6`, `v4v6` | `v4` |
 | arch | `x86_64`, `aarch64` | auto-detected |
+| fencing-cred-id | `hostname`, `macAddress` | none (commented in template) |
 | force | `true` | `false` |
 | ds-repo | fork URL | none |
 | ds-branch | fork branch | none |
