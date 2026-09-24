@@ -30,6 +30,7 @@ valreq() { [[ -n "${2-}" && "$2" != -* ]]; }
 transform_config() {
     local tmpfile="$1" release_image="$2" ip_stack="$3" ci_token="$4"
     local scenario="$5" arch="$6" metal3_tag="$7"
+    local fencing_cred_id="$8"
 
     sed -i "s|^export OPENSHIFT_RELEASE_IMAGE=.*|export OPENSHIFT_RELEASE_IMAGE=${release_image}|" "$tmpfile"
 
@@ -39,6 +40,14 @@ transform_config() {
         sed -i "s|^export AGENT_E2E_TEST_SCENARIO=.*|export AGENT_E2E_TEST_SCENARIO=\"${scenario}\"|" "$tmpfile"
     elif grep -q '^# *export AGENT_E2E_TEST_SCENARIO=' "$tmpfile"; then
         sed -i "s|^# *export AGENT_E2E_TEST_SCENARIO=.*|export AGENT_E2E_TEST_SCENARIO=\"${scenario}\"|" "$tmpfile"
+    fi
+
+    if [[ -n "$fencing_cred_id" ]]; then
+        if grep -q '^export FENCING_CREDENTIAL_IDENTIFIER=' "$tmpfile"; then
+            sed -i "s|^export FENCING_CREDENTIAL_IDENTIFIER=.*|export FENCING_CREDENTIAL_IDENTIFIER=${fencing_cred_id}|" "$tmpfile"
+        elif grep -q '^# *export FENCING_CREDENTIAL_IDENTIFIER=' "$tmpfile"; then
+            sed -i "s|^# *export FENCING_CREDENTIAL_IDENTIFIER=.*|export FENCING_CREDENTIAL_IDENTIFIER=${fencing_cred_id}|" "$tmpfile"
+        fi
     fi
 
     if grep -q '^export CI_TOKEN=' "$tmpfile"; then
@@ -192,6 +201,7 @@ Required:
 Options:
     --ip-stack STACK        v4, v6, or v4v6 (default: v4)
     --arch ARCH             x86_64 or aarch64 (default: x86_64)
+    --fencing-cred-id ID    hostname or macAddress (fencing only)
     --metal3-tag TAG        aarch64 Metal3 image tag (default: ${DEFAULT_METAL3_TAG})
     --ds-repo URL           Dev-scripts fork repository URL
     --ds-branch BRANCH      Dev-scripts fork branch (requires --ds-repo)
@@ -228,6 +238,7 @@ ARCH="x86_64"
 METAL3_TAG="${DEFAULT_METAL3_TAG}"
 DS_REPO=""
 DS_BRANCH=""
+FENCING_CRED_ID=""
 INVENTORY=""
 OUTPUT=""
 FORCE="false"
@@ -252,6 +263,9 @@ while [[ $# -gt 0 ]]; do
         --arch)
             valreq "$1" "${2-}" || { msg_err "--arch requires a value"; exit 2; }
             ARCH="$2"; shift 2 ;;
+        --fencing-cred-id)
+            valreq "$1" "${2-}" || { msg_err "--fencing-cred-id requires a value"; exit 2; }
+            FENCING_CRED_ID="$2"; shift 2 ;;
         --metal3-tag)
             valreq "$1" "${2-}" || { msg_err "--metal3-tag requires a value"; exit 2; }
             METAL3_TAG="$2"; shift 2 ;;
@@ -304,6 +318,10 @@ case "$ARCH" in
     x86_64|aarch64) ;;
     *) msg_err "Invalid arch: ${ARCH} (expected: x86_64, aarch64)"; exit 2 ;;
 esac
+case "$FENCING_CRED_ID" in
+    ""|hostname|macAddress) ;;
+    *) msg_err "Invalid fencing-cred-id: ${FENCING_CRED_ID} (expected: hostname or macAddress)"; exit 2 ;;
+esac
 
 if [[ "$CI_TOKEN_VALUE" == *"<PASTE"* || "$CI_TOKEN_VALUE" == "placeholder" ]]; then
     msg_err "--ci-token contains a placeholder, not a real token"
@@ -326,6 +344,11 @@ fi
 if [[ "$ARCH" == "aarch64" && "$RELEASE_IMAGE" == *"-multi"* ]]; then
     msg_err "aarch64 requires an explicit aarch64 payload (not -multi)"
     msg_err "  Use resolve-release-image.sh --arch aarch64 to get the correct image"
+    exit 3
+fi
+
+if [[ "$TOPOLOGY" != "fencing" && -n "$FENCING_CRED_ID" ]]; then
+    msg_err "--fencing-cred-id is only meaningful for fencing topology"
     exit 3
 fi
 
@@ -385,7 +408,7 @@ cp "$TEMPLATE" "$TMPFILE"
 msg_info "Generating ${TOPOLOGY} config (${METHOD}, ${ARCH}, IP_STACK=${IP_STACK})"
 
 transform_config "$TMPFILE" "$RELEASE_IMAGE" "$IP_STACK" "$CI_TOKEN_VALUE" \
-    "$SCENARIO" "$ARCH" "$METAL3_TAG"
+    "$SCENARIO" "$ARCH" "$METAL3_TAG" "$FENCING_CRED_ID"
 
 if ! self_check "$TMPFILE" "$TOPOLOGY" "$RELEASE_IMAGE"; then
     msg_err "Self-check failed; config not written"

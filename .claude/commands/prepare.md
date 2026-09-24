@@ -17,6 +17,7 @@ You are preparing an OpenShift cluster configuration for deployment via dev-scri
 **Optional key=value overrides:**
 - `ip-stack=v4|v6|v4v6` (default: v4)
 - `arch=x86_64|aarch64` (override auto-detection)
+- `fencing-cred-id=hostname|macAddress` (fencing topology only)
 - `force=true` (overwrite existing config)
 - `ds-repo=URL` (dev-scripts fork URL)
 - `ds-branch=BRANCH` (dev-scripts fork branch)
@@ -75,6 +76,7 @@ Interactive prompting is only for humans invoking with missing arguments.
 | aarch64 + -multi image | **Blocked** — explicit aarch64 payload required |
 | agent + ip-stack != v4 | **Warning** — scenario name must exist in dev-scripts e2e list |
 | CI_TOKEN missing/placeholder | **Blocked** — always required |
+| topology != fencing + fencing-cred-id set | **Blocked** — only meaningful for fencing topology |
 
 These are enforced in the helper scripts. If the user hits one, explain why and what to change.
 
@@ -143,6 +145,7 @@ helpers/prepare-config.sh \
   --ci-token <ci_token> \
   --ip-stack <stack> \
   --arch <arch> \
+  $([ -n "<fencing_cred_id>" ] && echo "--fencing-cred-id <fencing_cred_id>") \
   $([ "<force>" = "true" ] && echo "--force") \
   $([ -n "<ds_repo>" ] && echo "--ds-repo <ds_repo>") \
   $([ -n "<ds_branch>" ] && echo "--ds-branch <ds_branch>")
@@ -152,6 +155,8 @@ On failure:
 - Exit 3: constraint violation → explain the specific constraint
 - Exit 4: config exists → ask if they want `force=true` (human) or tell agent callers to pass `force=true`
 - Exit 5: self-check failed → likely template drift, report verbatim
+
+After config generation, when `topology=fencing` and `method=agent` and the user did not explicitly set `fencing-cred-id`, note that `fencing-cred-id=macAddress` may be needed when hostnames are not stable during agent-based installs.
 
 ### Step 5: Run doctor
 

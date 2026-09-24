@@ -244,6 +244,59 @@ test_constraints() {
 }
 
 # ---------------------------------------------------------------------------
+# Test: fencing credential identifier
+# ---------------------------------------------------------------------------
+
+test_fencing_cred_id() {
+    echo ""
+    echo "=== Fencing credential identifier tests ==="
+
+    local ci="sha256~fencing_cred_id_test"
+    local img="quay.io/openshift-release-dev/ocp-release:4.21.0-multi"
+    local rc=0
+    local default_out="${TMPDIR_BASE}/fencing_cred_id_default.sh"
+
+    "$PREPARE" --topology fencing --method ipi --release-image "$img" \
+        --ci-token "$ci" --inventory "${TMPDIR_BASE}/inventory.ini" \
+        --output "$default_out" >/dev/null 2>&1
+    assert_grep "$default_out" '^#export FENCING_CREDENTIAL_IDENTIFIER=hostname' \
+        "fencing credential identifier omitted remains commented"
+
+    local hostname_out="${TMPDIR_BASE}/fencing_cred_id_hostname.sh"
+    "$PREPARE" --topology fencing --method ipi --release-image "$img" \
+        --ci-token "$ci" --fencing-cred-id hostname \
+        --inventory "${TMPDIR_BASE}/inventory.ini" \
+        --output "$hostname_out" >/dev/null 2>&1
+    assert_grep "$hostname_out" '^export FENCING_CREDENTIAL_IDENTIFIER=hostname' \
+        "hostname fencing credential identifier enabled"
+    assert_not_grep "$hostname_out" '^# *export FENCING_CREDENTIAL_IDENTIFIER=' \
+        "hostname fencing credential identifier uncommented"
+
+    local mac_out="${TMPDIR_BASE}/fencing_cred_id_mac.sh"
+    "$PREPARE" --topology fencing --method ipi --release-image "$img" \
+        --ci-token "$ci" --fencing-cred-id macAddress \
+        --inventory "${TMPDIR_BASE}/inventory.ini" \
+        --output "$mac_out" >/dev/null 2>&1
+    assert_grep "$mac_out" '^export FENCING_CREDENTIAL_IDENTIFIER=macAddress' \
+        "macAddress fencing credential identifier enabled"
+    assert_not_grep "$mac_out" '^# *export FENCING_CREDENTIAL_IDENTIFIER=' \
+        "macAddress fencing credential identifier uncommented"
+
+    "$PREPARE" --topology fencing --method ipi --release-image "$img" \
+        --ci-token "$ci" --fencing-cred-id invalid \
+        --inventory "${TMPDIR_BASE}/inventory.ini" \
+        --output "${TMPDIR_BASE}/fencing_cred_id_invalid.sh" >/dev/null 2>&1 || rc=$?
+    assert_exit 2 "$rc" "invalid fencing credential identifier rejected"
+
+    rc=0
+    "$PREPARE" --topology sno --method ipi --release-image "$img" \
+        --ci-token "$ci" --fencing-cred-id hostname \
+        --inventory "${TMPDIR_BASE}/inventory.ini" \
+        --output "${TMPDIR_BASE}/fencing_cred_id_sno.sh" >/dev/null 2>&1 || rc=$?
+    assert_exit 3 "$rc" "fencing credential identifier blocked outside fencing topology"
+}
+
+# ---------------------------------------------------------------------------
 # Test: inventory.ini fork handling
 # ---------------------------------------------------------------------------
 
@@ -309,6 +362,7 @@ INV
 setup
 test_transform_matrix
 test_constraints
+test_fencing_cred_id
 test_inventory
 
 echo ""
