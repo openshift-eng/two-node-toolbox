@@ -1,0 +1,38 @@
+# Operator build profiles
+# Format: INI-style configuration
+# Copy this to operators.conf and update paths for your environment
+#
+# default_branch is optional. Omit it to build whatever branch each repo currently
+# has checked out (recommended). Set it to pin a profile to a branch, or override
+# per-build with `build-operators.sh <profile>:<branch>`.
+
+[ceo]
+name=cluster-etcd-operator
+repo=/path/to/your/cluster-etcd-operator
+dockerfile=Dockerfile.ocp
+# default_branch=main
+
+[cno]
+name=cluster-network-operator
+repo=/path/to/your/cluster-network-operator
+dockerfile=Dockerfile
+# default_branch=master
+
+[ovnk]
+name=ovn-kubernetes
+repo=/path/to/your/ovn-kubernetes
+dockerfile=Dockerfile.ocp
+# default_branch=master
+
+[kcm]
+name=kube-controller-manager
+repo=/path/to/your/kube-controller-manager
+dockerfile=Dockerfile.ocp
+# default_branch=master
+
+# Add more operators as needed:
+# [mco]
+# name=machine-config-operator
+# repo=/path/to/your/machine-config-operator
+# dockerfile=Dockerfile.rhel
+# default_branch=main
