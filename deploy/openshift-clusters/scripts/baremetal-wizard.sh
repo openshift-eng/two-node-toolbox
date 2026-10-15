@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 #
 # Interactive wizard for creating a baremetal node inventory.
 #

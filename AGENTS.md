@@ -224,7 +224,7 @@ The repository includes comprehensive README files in `deploy/openshift-clusters
 - Comment complex configurations
 
 #### Shell Scripts
-- Use `#!/usr/bin/bash` shebang
+- Use `#!/usr/bin/env bash` shebang
 - Include error handling with `set -euo pipefail`
 - Use meaningful variable names in UPPER_CASE
 - Add comments for complex logic
