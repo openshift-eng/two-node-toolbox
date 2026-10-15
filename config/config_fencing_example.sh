@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 export IP_STACK="v4"
 export NUM_WORKERS=0

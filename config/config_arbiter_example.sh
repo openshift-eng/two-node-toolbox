@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 
 # Please copy one of the config values below for IPI or Agent based installs into your
