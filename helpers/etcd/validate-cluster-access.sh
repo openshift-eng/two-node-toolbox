@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 # Validate access to cluster VMs via Ansible and OpenShift cluster via oc
 # This is the comprehensive validation script for etcd troubleshooting
 

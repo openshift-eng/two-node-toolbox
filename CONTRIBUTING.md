@@ -74,7 +74,7 @@ installation is required beyond a container engine.
 
 ### Shell Scripts
 
-- `#!/usr/bin/bash` shebang
+- `#!/usr/bin/env bash` shebang
 - `set -euo pipefail` at the top
 - Quote all variables to prevent word splitting
 - UPPER_CASE for variable names

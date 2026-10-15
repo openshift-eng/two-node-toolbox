@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Unified cluster deployment script
 # Usage: deploy-cluster.sh --topology <arbiter|fencing> --method <ipi|agent|kcli>

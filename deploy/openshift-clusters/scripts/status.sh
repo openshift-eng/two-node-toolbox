@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 #
 # Unified status dashboard for the two-node-toolbox environment.
 # Reports local configuration, EC2 instance state, cluster state file,

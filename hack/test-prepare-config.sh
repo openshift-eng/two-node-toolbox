@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 # Offline test matrix for prepare-config.sh and resolve-release-image.sh.
 # Runs without network access — validates config transforms against real examples.
 set -euo pipefail
