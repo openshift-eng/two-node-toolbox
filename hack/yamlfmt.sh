@@ -14,7 +14,7 @@ if [ "$VALIDATE_ONLY" != "false" ]; then
 fi
 
 
-if [ "$OPENSHIFT_CI" != "" ]; then
+if [ "${OPENSHIFT_CI:-}" != "" ]; then
   TOP_DIR="${1:-.}"
   yamlfmt -conf "$FMT_CONFIG" "$EXTRA_FLAG_ARGS" "$TOP_DIR"
 else

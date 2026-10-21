@@ -146,7 +146,7 @@
 
 - name: "[ingress] IngressController reconfiguration complete"
   debug:
-    msg: |
+    msg: |-
       {% if 'needs_deletion=true' in ingress_check.stdout %}
       ✓ IngressController recreated with HA defaults
       ✓ Router pods ready and serving traffic

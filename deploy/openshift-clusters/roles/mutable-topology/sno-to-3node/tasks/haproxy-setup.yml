@@ -414,7 +414,7 @@
 
 - name: "[haproxy] HAProxy setup complete"
   debug:
-    msg: |
+    msg: |-
       ✓ HAProxy configured and running on hypervisor (192.168.111.1)
       ✓ DNS updated to route all traffic through HAProxy (round-robin load balancing)
       ✓ API/API-INT entries in addnhosts point to HAProxy (.1)

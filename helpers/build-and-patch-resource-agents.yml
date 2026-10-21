@@ -165,7 +165,7 @@
     - name: Show completion message (build only)
       when: build_only | default(false) | bool
       debug:
-        msg: |
+        msg: |-
           Resource-agents build complete!
           RPM location: {{ playbook_dir }}/{{ hostvars[groups['metal_machine'][0]]['rpm_filename'] }}
           Skipped patching cluster nodes (build_only=true).

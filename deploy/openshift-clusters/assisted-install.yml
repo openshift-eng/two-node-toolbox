@@ -139,7 +139,7 @@
 
     - name: Display deployment summary
       debug:
-        msg: |
+        msg: |-
           Spoke TNF cluster deployed successfully!
 
           Spoke credentials:

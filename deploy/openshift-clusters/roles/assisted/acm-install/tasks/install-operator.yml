@@ -41,14 +41,12 @@
     - name: Set operator channel fact
       set_fact:
         operator_channel: "{{ detected_channel.stdout }}"
-  when: (hub_operator == 'acm' and acm_channel == 'auto') or
-        (hub_operator == 'mce' and mce_channel == 'auto')
+  when: (hub_operator == 'acm' and acm_channel == 'auto') or (hub_operator == 'mce' and mce_channel == 'auto')
 
 - name: Use user-specified channel
   set_fact:
     operator_channel: "{{ acm_channel if hub_operator == 'acm' else mce_channel }}"
-  when: (hub_operator == 'acm' and acm_channel != 'auto') or
-        (hub_operator == 'mce' and mce_channel != 'auto')
+  when: (hub_operator == 'acm' and acm_channel != 'auto') or (hub_operator == 'mce' and mce_channel != 'auto')
 
 - name: Display operator channel
   debug:

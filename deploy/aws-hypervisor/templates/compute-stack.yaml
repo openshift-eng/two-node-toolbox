@@ -1,3 +1,4 @@
+---
 AWSTemplateFormatVersion: 2010-09-09
 Description: >-
   Per-instance compute resources for RHEL hypervisor.
@@ -72,7 +73,7 @@ Resources:
           DeviceIndex: "0"
           GroupSet:
             - !ImportValue
-                Fn::Sub: "${NetworkStackName}-SGId"
+              Fn::Sub: "${NetworkStackName}-SGId"
           SubnetId: !ImportValue
             Fn::Sub: "${NetworkStackName}-SubnetId"
       Tags:

@@ -301,7 +301,7 @@
 
 - name: "[topology] Topology transition complete"
   debug:
-    msg: |
+    msg: |-
       ✓ Infrastructure.spec.controlPlaneTopology = HighlyAvailable
       ✓ Infrastructure.status.controlPlaneTopology = HighlyAvailable
       {% if not sno_already_ha %}

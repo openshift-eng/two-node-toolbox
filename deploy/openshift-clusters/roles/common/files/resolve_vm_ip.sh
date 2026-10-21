@@ -43,7 +43,7 @@ for MAC in $MACS; do
   [[ -n "$SCORED" ]] && CANDIDATES="${CANDIDATES}${CANDIDATES:+$'\n'}${SCORED}"
 done
 if [[ -n "$CANDIDATES" ]]; then
-  while IFS=' ' read -r _score ip; do
+  while IFS=' ' read -r _ ip; do
     REMOTE_HOST=$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
       -o ConnectTimeout=2 -o BatchMode=yes "core@${ip}" "hostname -s" 2>/dev/null) || continue
     if [[ -z "$EXPECTED_HOSTNAME" ]] || [[ "$REMOTE_HOST" == *"${EXPECTED_HOSTNAME}"* ]]; then

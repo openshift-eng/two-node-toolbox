@@ -163,7 +163,7 @@
 
     - name: Display inventory update success
       debug:
-        msg: |
+        msg: |-
           Inventory updated with {{ parsed_vm_entries | length }} cluster node(s):
           {% for entry in parsed_vm_entries %}
           - {{ entry.name }}: {{ entry.ip }}
