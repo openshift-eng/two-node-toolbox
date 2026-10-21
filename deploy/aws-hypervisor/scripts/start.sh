@@ -26,7 +26,7 @@ function start_instance_with_retries() {
         fi
         printf '%s\n' "${start_output}" >&2
 
-        if [[ ${start_output} != *"(InsufficientInstanceCapacity)"* ]]; then
+        if [[ ${start_output} != *"InsufficientInstanceCapacity"* ]]; then
             return "${start_status}"
         fi
         if (( attempt >= 3 )); then
