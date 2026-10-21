@@ -1,4 +1,3 @@
----
 # Patch Provisioning CR to:
 # 1. Enable watchAllNamespaces (BMO processes BMHs in all namespaces)
 # 2. Disable provisioning network (spoke VMs not on provisioning network)

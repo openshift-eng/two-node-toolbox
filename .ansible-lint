@@ -1,4 +1,3 @@
----
 # Configuration for ansible-lint, run via `make ansible-lint` (hack/ansible-lint.sh).
 profile: basic
 

@@ -1,4 +1,3 @@
----
 # Create empty libvirt VMs for spoke cluster, capture UUID/MAC
 
 - name: Create spoke VM disks

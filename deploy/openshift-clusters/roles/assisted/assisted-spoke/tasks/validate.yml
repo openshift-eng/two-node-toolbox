@@ -1,4 +1,3 @@
----
 # Validate spoke cluster input variables before deployment
 
 - name: Validate spoke_cluster_name is non-empty and DNS-safe

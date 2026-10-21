@@ -1,4 +1,3 @@
----
 # Force New Cluster - Configure CIB attributes for etcd cluster recovery
 # Original shell script by Carlo Lobrano https://gitlab.cee.redhat.com/clobrano/2no-lab/-/blob/main/bin/force-new-cluster
 # Ansible conversion for two-node-toolbox project

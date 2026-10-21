@@ -1,4 +1,3 @@
----
 # Reconfigure IngressController for HA after MCO rollout and operator sync
 # This must run AFTER Infrastructure.status has been updated AND operators have synced
 # The IngressController operator reads Infrastructure.status to determine default replicas

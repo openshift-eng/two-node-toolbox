@@ -1,4 +1,3 @@
----
 # Create AgentServiceConfig with RHCOS ISO auto-extracted from release image
 # hub_release_image, hub_ocp_version, effective_release_image are set by playbook pre_tasks
 

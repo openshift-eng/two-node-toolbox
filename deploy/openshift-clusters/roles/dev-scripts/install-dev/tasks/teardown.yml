@@ -1,4 +1,3 @@
----
 - name: Check for dev_scripts_path
   fail:
     msg: dev_scripts_path must be defined

@@ -1,4 +1,3 @@
----
 # Default variables for init-host playbook
 # Copy this file to vars/init-host.yml.local to override defaults without committing secrets
 

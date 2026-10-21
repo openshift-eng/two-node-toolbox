@@ -1,4 +1,3 @@
----
 # Create dedicated libvirt network for spoke cluster with DNS for api/apps VIPs
 # Then add cross-bridge nftables FORWARD rules for spoke<->hub connectivity
 

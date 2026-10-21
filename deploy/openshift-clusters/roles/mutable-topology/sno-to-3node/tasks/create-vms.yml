@@ -1,4 +1,3 @@
----
 - name: "[create-vms] Cleanup stale VMs"
   shell: |
     sudo virsh destroy {{ item.name }} 2>/dev/null || true

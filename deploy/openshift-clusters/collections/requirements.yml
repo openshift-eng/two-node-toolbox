@@ -1,4 +1,3 @@
----
 # Ansible Collections Requirements
 # Install with: ansible-galaxy collection install -r collections/requirements.yml
 

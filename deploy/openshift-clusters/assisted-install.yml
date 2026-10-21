@@ -1,4 +1,3 @@
----
 # Deploy a spoke TNF cluster via ACM/assisted installer on an existing hub cluster.
 #
 # Prerequisites:

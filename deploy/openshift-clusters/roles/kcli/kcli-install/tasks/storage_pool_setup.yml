@@ -1,4 +1,3 @@
----
 # Reusable storage pool setup for libvirt
 
 - name: Check if storage pool exists

@@ -1,4 +1,3 @@
----
 AWSTemplateFormatVersion: 2010-09-09
 Description: >-
   Per-instance compute resources for RHEL hypervisor.

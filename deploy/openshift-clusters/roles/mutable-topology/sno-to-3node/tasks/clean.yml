@@ -1,4 +1,3 @@
----
 - name: "[clean] Stop and undefine new VMs"
   shell: |
     sudo virsh destroy {{ item.name }} 2>/dev/null || true

@@ -1,4 +1,3 @@
----
 # Reusable task to ensure a libvirt pool is active
 
 - name: Check pool status

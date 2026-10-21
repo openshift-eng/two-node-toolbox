@@ -1,4 +1,3 @@
----
 # Create proxy environment configuration
 
 - name: Create proxy environment file

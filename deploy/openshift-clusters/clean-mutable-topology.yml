@@ -1,4 +1,3 @@
----
 - hosts: metal_machine
   gather_facts: yes
 

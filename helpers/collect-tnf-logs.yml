@@ -1,4 +1,3 @@
----
 - name: Collect pacemaker and etcd logs from cluster nodes
   hosts: cluster_vms
   remote_user: core

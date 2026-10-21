@@ -1,4 +1,3 @@
----
 # kcli-redfish role default variables
 
 # SSL configuration for ksushy (simulated BMC)

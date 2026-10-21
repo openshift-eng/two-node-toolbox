@@ -1,4 +1,3 @@
----
 # Control flags
 stop_before_transition_confirm: false # Set to true to stop before --confirm (for manual testing)
 

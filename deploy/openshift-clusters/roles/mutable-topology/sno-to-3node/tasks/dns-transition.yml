@@ -1,4 +1,3 @@
----
 - name: "[dns] Delete SNO dnsmasq MachineConfig (switch to HAProxy DNS)"
   shell: |
     oc delete mc 50-master-dnsmasq-configuration --ignore-not-found=true

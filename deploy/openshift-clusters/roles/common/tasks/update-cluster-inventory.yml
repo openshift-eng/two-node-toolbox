@@ -1,4 +1,3 @@
----
 # Update inventory with cluster VMs for direct Ansible access
 # This task discovers running cluster VMs and adds them to the inventory
 # with ProxyJump configuration through the hypervisor

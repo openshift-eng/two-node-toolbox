@@ -1,4 +1,3 @@
----
 # Remove existing spoke resources for re-deployment
 
 - name: Delete spoke namespace (removes all cluster resources)

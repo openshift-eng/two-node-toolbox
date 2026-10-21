@@ -1,4 +1,3 @@
----
 # Start ksushy BMC simulator for fencing support
 
 - name: Check if ksushy service is already running

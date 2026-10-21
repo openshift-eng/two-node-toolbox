@@ -1,4 +1,3 @@
----
 # Deploy a TNF fencing cluster on adopted baremetal nodes via dev-scripts ABI.
 #
 # Targets the [provisioning_host] group from inventory_baremetal.ini.

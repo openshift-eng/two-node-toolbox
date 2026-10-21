@@ -1,4 +1,3 @@
----
 # Copy cluster authentication files to standard location
 # This task file is designed to be included by other roles, not run from main.yaml
 

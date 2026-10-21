@@ -1,4 +1,3 @@
----
 - name: Build resource-agents RPM on hypervisor and patch cluster nodes
   hosts: localhost
   gather_facts: no

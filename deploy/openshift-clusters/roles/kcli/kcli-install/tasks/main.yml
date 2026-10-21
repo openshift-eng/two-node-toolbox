@@ -1,4 +1,3 @@
----
 # kcli-install role main tasks
 
 - name: Validate configuration

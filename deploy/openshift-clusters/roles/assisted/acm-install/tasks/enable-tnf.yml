@@ -1,4 +1,3 @@
----
 # Enable TNF cluster support in assisted service
 # Requires both a ConfigMap AND an annotation on AgentServiceConfig
 

@@ -1,4 +1,3 @@
----
 # Update inventory_baremetal.ini with cluster nodes for direct Ansible access.
 # Baremetal variant of update-cluster-inventory.yml — node IPs are already
 # known from [baremetal_nodes], so no virsh discovery is needed.

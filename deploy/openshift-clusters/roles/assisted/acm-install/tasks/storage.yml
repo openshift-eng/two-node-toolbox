@@ -1,4 +1,3 @@
----
 # Provision hostPath storage for assisted service
 # Requires chmod 777 (non-root containers) + SELinux context fix on both nodes
 

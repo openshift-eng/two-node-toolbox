@@ -1,4 +1,3 @@
----
 - name: Read config file to check for CI registry usage
   set_fact:
     config_content: "{{ lookup('file', config_file[method]) }}"

@@ -1,4 +1,3 @@
----
 # OpenShift Two-Node Cluster deployment using kcli
 # This playbook deploys a two-node OpenShift cluster with fencing or arbiter configuration
 # Defaults to fencing topology with non-interactive mode for automation-friendly execution

@@ -1,4 +1,3 @@
----
 - import_tasks: check_vars.yml
 - name: Trigger set project
   assert:

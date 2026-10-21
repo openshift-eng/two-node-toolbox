@@ -1,4 +1,3 @@
----
 # Main tasks for proxy-setup role
 
 - name: Fetch cluster credentials

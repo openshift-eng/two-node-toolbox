@@ -1,4 +1,3 @@
----
 # Default variables for acm-install role
 
 # Hub operator to install: "acm" or "mce"

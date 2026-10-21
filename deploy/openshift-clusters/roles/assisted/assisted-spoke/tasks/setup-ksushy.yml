@@ -1,4 +1,3 @@
----
 # Verify sushy-tools is running on the hypervisor (should already exist from dev-scripts)
 
 - name: Check if sushy-tools container is running

@@ -1,4 +1,3 @@
----
 # Create spoke cluster resources on hub: namespace, secrets, ClusterDeployment,
 # AgentClusterInstall, InfraEnv, ClusterImageSet
 # hub_release_image, hub_ocp_version, effective_release_image, effective_ocp_version

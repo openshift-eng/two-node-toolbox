@@ -1,4 +1,3 @@
----
 - name: "[mco] Display MCO rollout monitoring start"
   debug:
     msg: "Monitoring MCO rollout after topology transition (timeout: {{ sno_topology_mco_timeout_minutes }} min)"

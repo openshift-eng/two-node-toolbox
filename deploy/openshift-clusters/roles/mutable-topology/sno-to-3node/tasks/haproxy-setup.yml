@@ -1,4 +1,3 @@
----
 - name: "[haproxy] Check if HAProxy is already configured for this cluster"
   shell: |
     # Check if haproxy is running

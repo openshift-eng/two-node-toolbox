@@ -1,4 +1,3 @@
----
 # Reusable MCP polling task for monitoring MCO rollouts
 # This uses two-phase monitoring to avoid instant completion when MCO is fast
 #

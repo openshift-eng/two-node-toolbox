@@ -1,4 +1,3 @@
----
 - name: Check kubeconfig exists for OCP project
   stat:
     path: "{{ kubeconfig_path }}"

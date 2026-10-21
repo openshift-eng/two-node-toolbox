@@ -1,4 +1,3 @@
----
 # Common cluster state management tasks
 # Used by both kcli-install and dev-scripts install-dev roles
 

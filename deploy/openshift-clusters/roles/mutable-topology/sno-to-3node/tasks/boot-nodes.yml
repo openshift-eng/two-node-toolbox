@@ -1,4 +1,3 @@
----
 - name: "[boot] Check if RHCOS live ISO exists on hypervisor"
   stat:
     path: "/var/lib/libvirt/images/rhcos-live.iso"

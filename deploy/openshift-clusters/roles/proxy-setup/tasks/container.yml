@@ -1,4 +1,3 @@
----
 # Setup and start proxy container
 
 - name: Get current user and home directory

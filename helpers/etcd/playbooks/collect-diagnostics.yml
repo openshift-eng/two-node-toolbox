@@ -1,4 +1,3 @@
----
 # Comprehensive diagnostic data collection for etcd troubleshooting
 # Collects Pacemaker status, etcd health, container status, and system logs
 

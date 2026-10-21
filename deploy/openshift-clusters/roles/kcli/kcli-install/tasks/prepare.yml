@@ -1,4 +1,3 @@
----
 # Preparation tasks for kcli-install
 
 - name: Clean up existing cluster if force_cleanup is enabled

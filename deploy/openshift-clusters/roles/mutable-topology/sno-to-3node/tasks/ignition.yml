@@ -1,4 +1,3 @@
----
 - name: "[ignition] Extract MCS CA certificate"
   shell: |
     oc get configmap -n openshift-machine-config-operator machine-config-server-ca \

@@ -1,4 +1,3 @@
----
 # Create BareMetalHost resources with BMC secrets and fencing credentials for each spoke node
 
 - name: Create BMH resources for each spoke node

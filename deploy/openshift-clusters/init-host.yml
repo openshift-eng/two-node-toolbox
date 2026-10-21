@@ -1,4 +1,3 @@
----
 # Host initialization playbook for Two-Node Toolbox
 # This playbook performs the same initialization tasks as the aws-hypervisor/scripts/init.sh
 # but uses Ansible inventory instead of instance-data files

@@ -1,4 +1,3 @@
----
 - name: "[wait-etcd] Poll for etcd scaling to 3 members"
   shell: |
     FULLY_READY=$(oc get pods -n openshift-etcd -l app=etcd -o json 2>/dev/null | python3 -c "

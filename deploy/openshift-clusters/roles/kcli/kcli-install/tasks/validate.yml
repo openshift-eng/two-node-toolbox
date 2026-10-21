@@ -1,4 +1,3 @@
----
 # Configuration validation for kcli-install
 
 - name: Validate cluster name

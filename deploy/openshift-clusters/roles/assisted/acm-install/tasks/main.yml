@@ -1,4 +1,3 @@
----
 # Install ACM/MCE + assisted service + enable TNF support on hub cluster
 
 - block:

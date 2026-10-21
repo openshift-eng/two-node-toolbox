@@ -1,4 +1,3 @@
----
 - name: "[wait-nodes] Poll for CSR approval and node join"
   shell: |
     PENDING=$(oc get csr -o json 2>/dev/null | python3 -c "

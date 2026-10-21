@@ -1,4 +1,3 @@
----
 - name: "[topology] Check if oc adm transition topology command is available"
   shell: |
     oc adm transition topology --help

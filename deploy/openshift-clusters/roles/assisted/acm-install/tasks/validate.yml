@@ -1,4 +1,3 @@
----
 # Validate hub cluster is healthy before proceeding
 
 - name: Check hub cluster nodes are Ready
