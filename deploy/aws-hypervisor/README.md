@@ -59,6 +59,12 @@ Starts a stopped EC2 instance and performs necessary post-startup checks.
 ./scripts/start.sh
 ```
 
+`make start` retries only `InsufficientInstanceCapacity`: three total attempts,
+60 seconds apart, in addition to AWS CLI internal retries. Other errors fail
+immediately.
+
+After exhaustion, retry later or consider another zone/region for a new deployment.
+
 #### `stop.sh`
 Stops a running EC2 instance with interactive cluster management options. The script will:
 - Detect if OpenShift clusters are running
