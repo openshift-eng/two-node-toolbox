@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Clean spoke cluster resources (VMs, network, auth) created by assisted installer
 # This is the counterpart to deploy-fencing-assisted.sh

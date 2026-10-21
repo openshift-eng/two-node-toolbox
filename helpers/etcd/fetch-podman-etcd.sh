@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 # Fetch the latest podman-etcd resource agent from upstream ClusterLabs
 #
 # This script downloads the podman-etcd resource agent from the ClusterLabs

@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 # Online validation for resolve-release-image.sh and prepare-config.sh.
 # Tier 1: resolver against live registries (any dev machine with pull-secret).
 # Tier 2: end-to-end config generation on configured instances.

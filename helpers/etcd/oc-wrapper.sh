@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 # OpenShift CLI wrapper with automatic proxy.env detection and handling
 # This script ensures oc commands work whether cluster access is direct or requires proxy
 

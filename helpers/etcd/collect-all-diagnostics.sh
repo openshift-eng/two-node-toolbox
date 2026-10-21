@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 # Master orchestration script for collecting all etcd/Pacemaker diagnostics
 # Collects both VM-level data (via Ansible) and cluster-level data (via oc)
 
