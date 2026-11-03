@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 #
 # Configuration preflight for the two-node-toolbox deployment flow.
 # Read-only: validates required tools, SSH keys, Ansible collections, and all

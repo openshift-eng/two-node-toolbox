@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 # Build resource-agents RPM on CentOS Stream 9 and 10 and tag in local registry.
 # No push. Run from the helpers/resource-agents-build/ directory.
 #

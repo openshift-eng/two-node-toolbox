@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 #
 # Deploy a TNF fencing cluster on adopted baremetal nodes.
 #

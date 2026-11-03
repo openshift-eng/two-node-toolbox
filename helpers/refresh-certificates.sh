@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # refresh-certificates.sh - Refresh expiring OpenShift API server signer certificates
 #

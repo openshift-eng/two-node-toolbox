@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 #
 # Adopt existing baremetal nodes for TNF deployment.
 #
