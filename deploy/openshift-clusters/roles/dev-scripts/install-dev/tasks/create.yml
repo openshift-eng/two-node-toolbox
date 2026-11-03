@@ -1,3 +1,4 @@
+---
 - import_tasks: check_vars.yml
 - name: Trigger set project
   assert:
@@ -25,7 +26,25 @@
     - "."
     - "/root"
 
+- name: Validate install_dev_start_poll
+  assert:
+    that:
+      - install_dev_start_poll | int >= 1
+    fail_msg: >-
+      install_dev_start_poll must be >= 1 (got {{ install_dev_start_poll }}).
+      A value of 0 makes Start OpenShift fire-and-forget and hides make failures.
+  when: not ansible_check_mode
+
 - name: Start OpenShift
   make:
     chdir: "{{dev_scripts_path}}"
     target: "{{make_target[method]}}"
+  async: "{{ install_dev_start_async }}"
+  poll: "{{ install_dev_start_poll }}"
+  when: not ansible_check_mode
+
+- name: Check Start OpenShift
+  make:
+    chdir: "{{dev_scripts_path}}"
+    target: "{{make_target[method]}}"
+  when: ansible_check_mode
