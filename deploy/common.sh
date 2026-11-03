@@ -125,8 +125,10 @@ function clear_cluster_state() {
 
   local inventory="${cluster_dir}/inventory.ini"
   if [[ -f "$inventory" ]]; then
-    sed -i '/^\[cluster_vms\]/,/^\[/{/^\[cluster_vms\]/d;/^\[/!d}' "$inventory"
-    sed -i '/^\[cluster_vms:vars\]/,/^\[/{/^\[cluster_vms:vars\]/d;/^\[/!d}' "$inventory"
+    # sed -i.bak is portable across GNU and BSD sed (macOS); remove backups after.
+    sed -i.bak -e '/^\[cluster_vms\]/,/^\[/{/^\[cluster_vms\]/d;/^\[/!d;}' "$inventory"
+    sed -i.bak -e '/^\[cluster_vms:vars\]/,/^\[/{/^\[cluster_vms:vars\]/d;/^\[/!d;}' "$inventory"
+    rm -f "${inventory}.bak"
   fi
 
   msg_info "Local cluster state cleared."
