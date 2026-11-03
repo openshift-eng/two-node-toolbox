@@ -25,6 +25,8 @@ The install-dev role handles the complete setup of OpenShift bare metal developm
 - `dev_scripts_branch`: Git branch to use (default: "master")
 - `test_cluster_name`: OpenShift cluster name (default: "ostest")
 - `method`: Deployment method (set by calling playbook, e.g., "ipi")
+- `install_dev_start_async`: Max seconds for the Start OpenShift task (default: `14400` / 4h). Applies to both IPI and agent installs. Override with `-e install_dev_start_async=...` if needed.
+- `install_dev_start_poll`: Seconds between async status polls (default: `60`). Must be `>= 1`; `0` would fire-and-forget and hide make failures.
 
 ### Computed Variables (vars/main.yml)
 

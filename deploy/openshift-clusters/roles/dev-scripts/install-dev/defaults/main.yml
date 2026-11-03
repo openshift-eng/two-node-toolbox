@@ -2,3 +2,6 @@ dev_scripts_path: openshift-metal3/dev-scripts
 dev_scripts_branch: master
 dev_scripts_src_repo: https://github.com/openshift-metal3/dev-scripts
 test_cluster_name: ostest
+# Max seconds for Start OpenShift (async); shared by IPI and agent installs.
+install_dev_start_async: 14400
+install_dev_start_poll: 60
