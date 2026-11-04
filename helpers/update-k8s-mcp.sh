@@ -13,6 +13,8 @@ set -euo pipefail
 NAME=kubernetes-mcp-server
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 CONFIG=${K8S_MCP_CONFIG:-$HOME/.config/kubernetes-mcp-server.toml}
+# A '~' in the env var is not expanded by the shell.
+CONFIG=${CONFIG/#\~/$HOME}
 
 command -v claude >/dev/null || { echo "claude CLI not found in PATH" >&2; exit 1; }
 
@@ -37,8 +39,10 @@ fi
 # A user-scope entry resolves this path from Claude's working directory, not this shell's.
 CONFIG=$(realpath "$CONFIG")
 
-# A 'kubeconfig' key in the TOML overrides the KUBECONFIG env var set below.
-if grep -qE '^[[:space:]]*kubeconfig[[:space:]]*=' "$CONFIG"; then
+# A nonempty 'kubeconfig' key in the TOML overrides the KUBECONFIG env var set below.
+KUBECONFIG_SETTING=$(grep -E '^[[:space:]]*kubeconfig[[:space:]]*=' "$CONFIG" | tail -n1 |
+  sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]*$//; s/^"(.*)"$/\1/; s/^'"'"'(.*)'"'"'$/\1/' || true)
+if [[ -n $KUBECONFIG_SETTING ]]; then
   echo "$CONFIG sets 'kubeconfig', which overrides KUBECONFIG=$KUBECONFIG_PATH" >&2
   exit 1
 fi
