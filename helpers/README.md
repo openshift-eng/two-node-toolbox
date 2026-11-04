@@ -10,6 +10,7 @@ This directory contains multiple helper tools for various OpenShift cluster oper
 - **Config Preparer**: Generates a dev-scripts config file from the example template with architecture-aware defaults and constraint enforcement
 - **Resource Agent Patching**: Scripts and playbooks (recommended usage) for installing RPM packages on cluster nodes using rpm-ostree's override functionality
 - **Fencing Validation**: Tools for validating two-node cluster fencing configuration and health
+- **Kubernetes MCP Updater**: `update-k8s-mcp.sh` points Claude Code's `kubernetes-mcp-server` at the cluster described by `deploy/openshift-clusters/proxy.env` (kubeconfig and proxy included)
 - **arm64 Metal3 Image Builder**: Builds arm64 variants of Metal3 images for aarch64 hypervisors (Graviton)
 - **Custom OCP 5.x payload (optional)**: `resource-agents-build/custom-payload.sh` to build a custom RHCOS layer from the resource-agents RPM and publish a custom release image with `oc adm release new`
 

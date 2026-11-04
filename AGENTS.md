@@ -173,6 +173,16 @@ User configuration files are created in `config/` at the repository root (templa
 - `kubeconfig`: OpenShift cluster kubeconfig
 - `kubeadmin-password`: Default admin password
 
+### Accessing a Deployed Cluster
+
+All cluster files are generated next to each other in `deploy/openshift-clusters/` (`proxy.env`, `kubeconfig`, `kubeadmin-password`). The API is only reachable through the hypervisor's Squid proxy, so every client needs the proxy settings.
+
+- **CLI**: `source deploy/openshift-clusters/proxy.env && oc get nodes`. Sourcing sets `KUBECONFIG` and the proxy variables for that shell only.
+- **Kubernetes MCP server**: run `helpers/update-k8s-mcp.sh [PROXY_ENV_OR_DIR]` to point the user-scope `kubernetes-mcp-server` at the cluster, then `/mcp` to reconnect. Re-run it after a redeploy (credentials regenerate) or when switching clusters or worktrees. The helper writes `read_only = true` only when it creates the server config; an existing config is left as-is, so confirm it is read-only before assuming writes are blocked. Use `oc` for changes.
+- **Node access (AWS)**: `make -C deploy ssh` reaches the hypervisor; cluster nodes are reached via `ssh -i <private-key> -o ProxyCommand="ssh -i <private-key> -W %h:%p ec2-user@$EC2_PUBLIC_IP" core@<node-ip>`, where the private key is the one matching `SSH_PUBLIC_KEY` in `config/instance.env` (`-i` does not apply to a `-J` hop). On an external host the jump user and key come from `inventory.ini` instead (the jump user is not necessarily `ec2-user`); see `deploy/openshift-clusters/README-external-host.md`. `inventory.ini` already carries the ProxyJump settings for Ansible.
+- **Verify before trusting**: `proxy.env` and `kubeconfig` persist after a cluster is shut down or destroyed. Confirm with `oc get nodes` (or `make -C deploy status`) before acting on them.
+- **Gotcha**: the proxy blocks other public hosts (e.g. the npm registry returns 403). Add them to `NO_PROXY` for tools that must go direct.
+
 ### Development Workflow
 
 1. **Environment Setup**: Use `deploy/aws-hypervisor/` tools or bring your own RHEL 9 host
