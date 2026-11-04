@@ -44,6 +44,9 @@ SKIP_OC="0"
 SKIP_PODMAN_BUILD="0" # set 1 with --no-build
 BUILT_OCI_REF=""      # set after successful podman push: repo@sha256:... for oc adm
 RPM_FILENAME="resource-agents.rpm" # for Dockerfile example only
+RA_REPO="" # override resource-agents git repo (--repo)
+RA_REF=""  # override resource-agents git ref  (--ref)
+TARGET_COMPONENT="" # override release component to replace (default: same as BASE_OS; use rhel-coreos-extensions for extension RPMs)
 # Quay garbage-collection hint (both OS layer and release payload). Set empty, none/off, or 0 to skip.
 EXPIRES_LABEL_VALUE=""
 QUAY_EXPIRES_AFTER_OVERRIDE="" # set with --quay-expires-after (bypasses env default for EXPIRES_LABEL_VALUE)
@@ -84,6 +87,19 @@ Release source (one required):
 
   --custom-os REF       Full ref for ${BASE_OS}= in oc adm (image@sha256:...). If
                         unset, a placeholder from --to-os-image is printed.
+
+  --target-component NAME
+                        Release component to replace. Default: same as --base-os.
+                        Use rhel-coreos-extensions or rhel-coreos-10-extensions to
+                        replace the RPM inside the extensions container (for packages
+                        like resource-agents that are MCO extensions, not base OS).
+                        Valid: rhel-coreos, rhel-coreos-10, rhel-coreos-extensions,
+                        rhel-coreos-10-extensions
+
+  --repo URL            resource-agents git repo for the RPM build
+                        (default: upstream ClusterLabs/resource-agents)
+  --ref REF             resource-agents git branch/tag/commit
+                        (default: main)
 
   --rpm-filename NAME   Name used in the Dockerfile COPY / RUN example
                         (default: ${RPM_FILENAME})
@@ -126,11 +142,11 @@ runs oc adm release new with the pushed image@sha256 when available (or with
   oc adm release new -a <auth> \\
     --from-release <payload> \\
     --to-image <PAYLOAD_TO_IMAGE, same as --to-payload-image> \\
-    rhel-coreos-10=<BUILT_OCI_REF from push, or your --custom-os>
+    <target-component>=<BUILT_OCI_REF from push, or your --custom-os>
 
   PAYLOAD_TO_IMAGE is set to <repo>:<nightly_from_payload>-<whoami> (no :latest-whoami).
 
-(Use the same component name as --base-os: rhel-coreos=... or rhel-coreos-10=...)
+(Component name defaults to --base-os; override with --target-component for extensions.)
 
 Combined Dockerfile:
   The script appends the RHCOS override snippet to Dockerfile.stream9
@@ -266,6 +282,21 @@ validate_base_os() {
     esac
 }
 
+validate_target_component() {
+    case "$1" in
+        rhel-coreos | rhel-coreos-10 | rhel-coreos-extensions | rhel-coreos-10-extensions) return 0 ;;
+        *) err "Invalid --target-component: $1 (use rhel-coreos, rhel-coreos-10, rhel-coreos-extensions, or rhel-coreos-10-extensions)" ;;
+    esac
+}
+
+effective_target_component() {
+    echo "${TARGET_COMPONENT:-$BASE_OS}"
+}
+
+is_extensions_target() {
+    [[ "$(effective_target_component)" == *-extensions ]]
+}
+
 # e.g. registry.ci.../ocp/release-5:5.0.0-0.nightly-2026-04-22-094829
 nightly_tag_from_release_ref() {
     echo "${1##*:}"
@@ -357,17 +388,19 @@ run_custom_os_build_and_push() {
     oci_tag="$(oci_tag_nightly_custom "${release_ref}")"
     full_name="${repo_base}:${oci_tag}"
 
-    local label_args=()
+    local build_args=()
     if [[ -n "${EXPIRES_LABEL_VALUE:-}" ]]; then
-        label_args+=(--label "quay.expires-after=${EXPIRES_LABEL_VALUE}")
+        build_args+=(--label "quay.expires-after=${EXPIRES_LABEL_VALUE}")
+    fi
+    if [[ -n "${RA_REPO}" ]]; then
+        build_args+=(--build-arg "RESOURCE_AGENTS_REPO=${RA_REPO}")
+    fi
+    if [[ -n "${RA_REF}" ]]; then
+        build_args+=(--build-arg "RESOURCE_AGENTS_REF=${RA_REF}")
     fi
     echo "Running podman build (context: ${build_ctx}):"
-    if ((${#label_args[@]})); then
-        echo "  podman build ... --label quay.expires-after=${EXPIRES_LABEL_VALUE} -f ${dockerfile_path} -t ${full_name} ${build_ctx}"
-    else
-        echo "  podman build --authfile ${authfile} -f ${dockerfile_path} -t ${full_name} ${build_ctx}"
-    fi
-    podman build --authfile "$authfile" "${label_args[@]}" -f "$dockerfile_path" -t "$full_name" "$build_ctx"
+    echo "  podman build --authfile ${authfile} ${build_args[*]} -f ${dockerfile_path} -t ${full_name} ${build_ctx}"
+    podman build --authfile "$authfile" "${build_args[@]}" -f "$dockerfile_path" -t "$full_name" "$build_ctx"
 
     digestfile="$(mktemp "${TMPDIR:-/tmp}/tnf-custom-os-digest.XXXXXX")"
     echo "Pushing: ${full_name}"
@@ -417,20 +450,29 @@ add_stream_build_stage_name() {
 }
 
 write_dockerfile_custompayload() {
-    local base_docker
+    local base_docker target
     local out=$1
+    target="$(effective_target_component)"
     base_docker="$(base_stream_dockerfile "$BASE_OS")"
     [[ -f "$base_docker" ]] || err "Base Dockerfile not found: ${base_docker} (for --base-os ${BASE_OS})"
     {
         add_stream_build_stage_name < "$base_docker"
-        printf '\n# --- RHCOS custom payload layer (appended by %s, BASE_OS=%s) ---\n' "$SCRIPT_NAME" "$BASE_OS"
-        if [[ "$SKIP_OC" -eq 1 ]]; then
-            print_dockerfile_placeholder "$AUTHFILE_REF" "$RELEASE_REF" "$BASE_OS"
+        printf '\n# --- Custom payload layer (appended by %s, target=%s) ---\n' "$SCRIPT_NAME" "$target"
+        if is_extensions_target; then
+            if [[ "$SKIP_OC" -eq 1 ]]; then
+                print_dockerfile_extensions_placeholder "$AUTHFILE_REF" "$RELEASE_REF" "$target"
+            else
+                print_dockerfile_extensions_snippet "${OS_REF}"
+            fi
         else
-            print_dockerfile_snippet "${OS_REF}"
+            if [[ "$SKIP_OC" -eq 1 ]]; then
+                print_dockerfile_placeholder "$AUTHFILE_REF" "$RELEASE_REF" "$target"
+            else
+                print_dockerfile_snippet "${OS_REF}"
+            fi
         fi
     } > "$out"
-    echo "Wrote ${out} (from $(basename "$base_docker") + RHCOS snippet)"
+    echo "Wrote ${out} (from $(basename "$base_docker") + ${target} snippet)"
 }
 
 # Second build stage: RHCOS base. RPM comes from the Stream stage in /tmp/ (see Dockerfile.stream*).
@@ -462,6 +504,65 @@ COPY --from=${STREAM_BUILD_STAGE} /tmp/${RPM_FILENAME} /${RPM_FILENAME}
 RUN test -s /${RPM_FILENAME} || \
     (echo 'ERROR: ${RPM_FILENAME} is empty (Stream 10 cannot build RPMs until libqb-devel is in EPEL 10). Use --base-os rhel-coreos for Stream 9.' && exit 1)
 RUN rpm-ostree -C override replace /${RPM_FILENAME} && rm -f /${RPM_FILENAME}
+EOF
+}
+
+print_dockerfile_extensions_snippet() {
+    local ext_ref=$1
+    cat <<EOF
+# Multi-stage: previous stage is ${STREAM_BUILD_STAGE} (Stream build); it leaves the RPM at /tmp/${RPM_FILENAME}.
+# Extensions overlay: replace the RPM and regenerate repodata so rpm-ostree sees
+# consistent NVR metadata. Without this, the ostree refspec derived from stale
+# repodata won't match the replacement RPM's internal NVR.
+FROM ${ext_ref} AS extensions_base
+
+FROM quay.io/centos/centos:stream9 AS extensions_repodata
+RUN dnf install -y createrepo_c && dnf clean all
+COPY --from=extensions_base /usr/share/rpm-ostree/extensions/ /extensions/
+COPY --from=${STREAM_BUILD_STAGE} /tmp/${RPM_FILENAME} /tmp/resource-agents-custom.rpm
+
+RUN cd /extensions/ \
+    && ORIG=\$(ls resource-agents-[0-9]*.rpm 2>/dev/null | head -1) \
+    && if [ -n "\$ORIG" ]; then cp /tmp/resource-agents-custom.rpm "\$ORIG"; \
+       else cp /tmp/resource-agents-custom.rpm ${RPM_FILENAME}; fi \
+    && rm -f /tmp/resource-agents-custom.rpm \
+    && rm -rf repodata/ \
+    && createrepo_c .
+
+FROM ${ext_ref}
+COPY --from=extensions_repodata /extensions/ /usr/share/rpm-ostree/extensions/
+EOF
+}
+
+print_dockerfile_extensions_placeholder() {
+    local auth=$1
+    local release_ref=$2
+    local target=$3
+    cat <<EOF
+# Multi-stage: previous stage is ${STREAM_BUILD_STAGE} (Stream build); it leaves the RPM at /tmp/${RPM_FILENAME}.
+# Extensions overlay: replace the RPM and regenerate repodata so rpm-ostree sees
+# consistent NVR metadata. Without this, the ostree refspec derived from stale
+# repodata won't match the replacement RPM's internal NVR.
+# (oc was skipped) Set extensions_base FROM to the one-line output of:
+#   oc adm release info -a ${auth} --image-for=${target} ${release_ref}
+FROM localhost/REPLACE-WITH-OUTPUT-OF-OC-ADM-RELEASE-INFO-ABOVE AS extensions_base
+
+FROM quay.io/centos/centos:stream9 AS extensions_repodata
+RUN dnf install -y createrepo_c && dnf clean all
+COPY --from=extensions_base /usr/share/rpm-ostree/extensions/ /extensions/
+COPY --from=${STREAM_BUILD_STAGE} /tmp/${RPM_FILENAME} /tmp/resource-agents-custom.rpm
+
+RUN cd /extensions/ \
+    && ORIG=\$(ls resource-agents-[0-9]*.rpm 2>/dev/null | head -1) \
+    && if [ -n "\$ORIG" ]; then cp /tmp/resource-agents-custom.rpm "\$ORIG"; \
+       else cp /tmp/resource-agents-custom.rpm ${RPM_FILENAME}; fi \
+    && rm -f /tmp/resource-agents-custom.rpm \
+    && rm -rf repodata/ \
+    && createrepo_c .
+
+# Final stage: same base as extensions_base (replace FROM below with same image)
+FROM localhost/REPLACE-WITH-OUTPUT-OF-OC-ADM-RELEASE-INFO-ABOVE
+COPY --from=extensions_repodata /extensions/ /usr/share/rpm-ostree/extensions/
 EOF
 }
 
@@ -547,6 +648,21 @@ while [[ $# -gt 0 ]]; do
             CUSTOM_OS_IMAGE_REF="$2"
             shift 2
             ;;
+        --target-component)
+            [[ -n "${2:-}" && "$2" != -* ]] || err "--target-component requires a value"
+            TARGET_COMPONENT="$2"
+            shift 2
+            ;;
+        --repo)
+            [[ -n "${2:-}" && "$2" != -* ]] || err "--repo requires a URL"
+            RA_REPO="$2"
+            shift 2
+            ;;
+        --ref)
+            [[ -n "${2:-}" && "$2" != -* ]] || err "--ref requires a value"
+            RA_REF="$2"
+            shift 2
+            ;;
         --rpm-filename)
             [[ -n "${2:-}" && "$2" != -* ]] || err "--rpm-filename requires a value"
             RPM_FILENAME="$2"
@@ -573,6 +689,9 @@ if [[ "$SKIP_OC" -eq 1 ]]; then
 fi
 
 validate_base_os "$BASE_OS"
+if [[ -n "$TARGET_COMPONENT" ]]; then
+    validate_target_component "$TARGET_COMPONENT"
+fi
 
 if [[ -z "$RELEASE_REF" && "$USE_AUTO_RELEASE" -ne 1 ]]; then
     err "Specify --release PULLSPEC or --auto-release"
@@ -623,24 +742,36 @@ if [[ -n "$EXPIRES_LABEL_VALUE" ]]; then
 else
     echo "Quay label quay.expires-after: (disabled)"
 fi
+if [[ -n "${RA_REPO}" || -n "${RA_REF}" ]]; then
+    echo "Resource agents source:"
+    echo "  Repo: ${RA_REPO:-<default: upstream>}"
+    echo "  Ref:  ${RA_REF:-<default: main>}"
+fi
+if [[ -n "$TARGET_COMPONENT" ]]; then
+    echo "Target component: ${TARGET_COMPONENT} (overrides default: ${BASE_OS})"
+    if is_extensions_target; then
+        echo "  Mode: extensions overlay (RPM file replacement, not rpm-ostree)"
+    fi
+fi
 echo ""
 
+RESOLVED_TARGET="$(effective_target_component)"
 OS_REF=""
 if [[ "$SKIP_OC" -eq 0 ]]; then
     if ! command -v oc >/dev/null 2>&1; then
         err "oc is not in PATH. Install OpenShift client or use --print-only to skip"
     fi
-    echo "Resolving base OS image (oc adm release info -a ... ${RELEASE_REF} --image-for ${BASE_OS}):"
+    echo "Resolving target image (oc adm release info -a ... ${RELEASE_REF} --image-for ${RESOLVED_TARGET}):"
     oc_release_info_err=$(mktemp) || err "mktemp failed"
-    if ! OS_REF="$(oc adm release info -a "$AUTHFILE_RESOLVED" --image-for="$BASE_OS" "$RELEASE_REF" 2>"$oc_release_info_err")"; then
+    if ! OS_REF="$(oc adm release info -a "$AUTHFILE_RESOLVED" --image-for="$RESOLVED_TARGET" "$RELEASE_REF" 2>"$oc_release_info_err")"; then
         oc_stderr_out=$(tr -d '\0' < "$oc_release_info_err")
         rm -f "$oc_release_info_err"
         detail=""
         [[ -n "$oc_stderr_out" ]] && detail=$'\n\n'"oc stderr:"$'\n'"$oc_stderr_out"
-        if [[ "$BASE_OS" == "rhel-coreos-10" ]]; then
+        if [[ "$RESOLVED_TARGET" == "rhel-coreos-10" ]]; then
             err "oc adm release info failed. Try --base-os rhel-coreos if this release uses RHEL 9 (rhel-coreos).${detail}"
         fi
-        err "oc adm release info failed for --base-os ${BASE_OS}. Check pull secret and payload.${detail}"
+        err "oc adm release info failed for target ${RESOLVED_TARGET}. Check pull secret and payload.${detail}"
     fi
     rm -f "$oc_release_info_err"
     # Trim whitespace
@@ -651,8 +782,8 @@ if [[ "$SKIP_OC" -eq 0 ]]; then
 fi
 
 if [[ "$SKIP_OC" -eq 1 ]]; then
-    echo "Skipping oc. Resolve the base image with:"
-    echo "  oc adm release info -a ${AUTHFILE_REF} --image-for=${BASE_OS} ${RELEASE_REF}"
+    echo "Skipping oc. Resolve the target image with:"
+    echo "  oc adm release info -a ${AUTHFILE_REF} --image-for=${RESOLVED_TARGET} ${RELEASE_REF}"
     echo ""
 fi
 
@@ -673,12 +804,12 @@ cat <<EOF
 --- Custom payload: oc adm release new (uses --to-payload-image) ---
 
   PAYLOAD --to-image: ${PAYLOAD_TO_IMAGE}
-  ${BASE_OS} mapping: ${CUSTOM_OS_IMAGE_REF:-${BUILT_OCI_REF:-<set --custom-os or run build without --no-build>}}
+  ${RESOLVED_TARGET} mapping: ${CUSTOM_OS_IMAGE_REF:-${BUILT_OCI_REF:-<set --custom-os or run build without --no-build>}}
 
 EOF
 
 EFFECTIVE_OS_REF="${CUSTOM_OS_IMAGE_REF:-$BUILT_OCI_REF}"
-print_release_new_cmd "$AUTHFILE_REF" "$RELEASE_REF" "$PAYLOAD_TO_IMAGE" "$BASE_OS" "$EFFECTIVE_OS_REF"
+print_release_new_cmd "$AUTHFILE_REF" "$RELEASE_REF" "$PAYLOAD_TO_IMAGE" "$RESOLVED_TARGET" "$EFFECTIVE_OS_REF"
 echo ""
 
 cat <<EOF
