@@ -29,9 +29,18 @@ eval "$(
 )"
 [[ -f $KUBECONFIG_PATH ]] || { echo "kubeconfig missing: $KUBECONFIG_PATH" >&2; exit 1; }
 
+mkdir -p "$(dirname "$CONFIG")"
 if [[ ! -f $CONFIG ]]; then
-  mkdir -p "$(dirname "$CONFIG")"
   echo 'read_only = true' > "$CONFIG"
+fi
+
+# A user-scope entry resolves this path from Claude's working directory, not this shell's.
+CONFIG=$(realpath "$CONFIG")
+
+# A 'kubeconfig' key in the TOML overrides the KUBECONFIG env var set below.
+if grep -qE '^[[:space:]]*kubeconfig[[:space:]]*=' "$CONFIG"; then
+  echo "$CONFIG sets 'kubeconfig', which overrides KUBECONFIG=$KUBECONFIG_PATH" >&2
+  exit 1
 fi
 
 # npx must reach the npm registry directly; the cluster proxy returns 403 for it.
@@ -44,6 +53,12 @@ claude mcp add "$NAME" -s user \
   -e http_proxy="$CLUSTER_PROXY" -e https_proxy="$CLUSTER_PROXY" \
   -e NO_PROXY="$MCP_NO_PROXY" -e no_proxy="$MCP_NO_PROXY" \
   -- npx -y kubernetes-mcp-server@latest --config "$CONFIG" >/dev/null
+
+# A local- or project-scope entry takes precedence over this user-scope one.
+if ! claude mcp get "$NAME" 2>/dev/null | grep -q 'Scope: User config'; then
+  echo "warning: a local or project scope '$NAME' entry overrides the user-scope entry" >&2
+  echo "         remove it with 'claude mcp remove $NAME -s local|project' and re-run" >&2
+fi
 
 echo "KUBECONFIG=$KUBECONFIG_PATH"
 claude mcp get "$NAME" | grep Status
