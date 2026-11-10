@@ -1,0 +1,113 @@
+# Force-delete monitoring pods stuck on cordoned (unschedulable) nodes and
+# uncordon stale cordons left over from previous rollouts.
+#
+# During the topology transition the MCO may cordon nodes, leaving
+# openshift-monitoring pods Pending/terminating on them; force-deleting them
+# lets them reschedule onto schedulable nodes.
+#
+# Nodes that are still cordoned while NO MachineConfigPool is updating are
+# considered stale (left over from an earlier rollout) and get uncordoned.
+
+- name: "[pods] List unschedulable nodes"
+  ansible.builtin.shell:
+    cmd: |
+      oc get nodes -o jsonpath='{range .items[?(@.spec.unschedulable)]}{.metadata.name}{"\n"}{end}'
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: unschedulable_nodes_raw
+  changed_when: false
+
+- name: "[pods] Set unschedulable node list"
+  ansible.builtin.set_fact:
+    infra_to_ha_unschedulable_nodes: "{{ unschedulable_nodes_raw.stdout_lines | select | list }}"
+
+- name: "[pods] Display unschedulable nodes"
+  ansible.builtin.debug:
+    msg: "{{ infra_to_ha_unschedulable_nodes if infra_to_ha_unschedulable_nodes else 'No unschedulable nodes' }}"
+
+- name: "[pods] Check for MachineConfigPools still updating"
+  ansible.builtin.shell:
+    cmd: |
+      oc get mcp -o json | jq -r \
+        '[.items[] | select([.status.conditions[]? | select(.type == "Updated" and .status == "False")] | length > 0) | .metadata.name] | join(",")'
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: updating_mcps_raw
+  changed_when: false
+  failed_when: false
+  when:
+    - infra_to_ha_unschedulable_nodes | length > 0
+    - infra_to_ha_uncordon_stale_nodes | default(true) | bool
+
+- name: "[pods] Uncordon stale unschedulable nodes (no active MCO rollout)"
+  ansible.builtin.shell:
+    cmd: oc adm uncordon {{ item }}
+  environment: "{{ infra_to_ha_oc_env }}"
+  loop: "{{ infra_to_ha_unschedulable_nodes }}"
+  register: uncordoned_nodes
+  changed_when: true
+  when:
+    - infra_to_ha_unschedulable_nodes | length > 0
+    - infra_to_ha_uncordon_stale_nodes | default(true) | bool
+    - (updating_mcps_raw.stdout | default('')) | trim == ''
+
+- name: "[pods] Skip uncordon - MCO rollout in progress"
+  ansible.builtin.debug:
+    msg: >-
+      Not uncordoning {{ infra_to_ha_unschedulable_nodes | join(', ') }}:
+      MachineConfigPools still updating ({{ (updating_mcps_raw.stdout | default('')) | trim }}).
+      Cordoned nodes are expected during an active rollout.
+  when:
+    - infra_to_ha_unschedulable_nodes | length > 0
+    - infra_to_ha_uncordon_stale_nodes | default(true) | bool
+    - (updating_mcps_raw.stdout | default('')) | trim != ''
+
+- name: "[pods] Re-list unschedulable nodes after uncordon"
+  ansible.builtin.shell:
+    cmd: |
+      oc get nodes -o jsonpath='{range .items[?(@.spec.unschedulable)]}{.metadata.name}{"\n"}{end}'
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: unschedulable_after_uncordon
+  changed_when: false
+  when: uncordoned_nodes is changed
+
+- name: "[pods] Refresh unschedulable node list after uncordon"
+  ansible.builtin.set_fact:
+    infra_to_ha_unschedulable_nodes: "{{ unschedulable_after_uncordon.stdout_lines | select | list }}"
+  when: uncordoned_nodes is changed
+
+- name: "[pods] Check for monitoring pods on unschedulable nodes"
+  ansible.builtin.shell:
+    cmd: |
+      oc get pods -n {{ item.0 }} --field-selector "spec.nodeName={{ item.1 }}" -o name
+  environment: "{{ infra_to_ha_oc_env }}"
+  loop: "{{ infra_to_ha_pending_pod_namespaces | product(infra_to_ha_unschedulable_nodes) }}"
+  loop_control:
+    label: "{{ item.0 }}/{{ item.1 }}"
+  register: stuck_pods_raw
+  changed_when: false
+  failed_when: false
+  when: infra_to_ha_unschedulable_nodes | length > 0
+
+- name: "[pods] Force-delete monitoring pods on unschedulable nodes"
+  ansible.builtin.shell:
+    cmd: |
+      PODS=$(oc get pods -n {{ item.item.0 }} --field-selector "spec.nodeName={{ item.item.1 }}" -o name)
+      if [ -n "$PODS" ]; then
+        echo "$PODS" | xargs -r oc delete -n {{ item.item.0 }} --grace-period=0 --force
+      fi
+  environment: "{{ infra_to_ha_oc_env }}"
+  loop: "{{ stuck_pods_raw.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.0 }}/{{ item.item.1 }}"
+  register: stuck_pods_deleted
+  changed_when: stuck_pods_deleted.stdout | default('') | trim != ''
+  when:
+    - infra_to_ha_unschedulable_nodes | length > 0
+    - item.stdout | default('') | trim != ''
+
+- name: "[pods] Display deleted pods"
+  ansible.builtin.debug:
+    msg: "{{ stuck_pods_deleted.results | default([])
+             | map(attribute='stdout_lines', default=[]) | flatten | list }}"
+  when:
+    - infra_to_ha_unschedulable_nodes | length > 0
+    - stuck_pods_deleted.results | default([]) | selectattr('stdout', 'defined') | selectattr('stdout') | list | length > 0

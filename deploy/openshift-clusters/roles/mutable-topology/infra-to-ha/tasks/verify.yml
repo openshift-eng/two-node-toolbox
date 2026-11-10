@@ -1,0 +1,30 @@
+- name: "[verify] Get node status"
+  ansible.builtin.shell:
+    cmd: oc get nodes --no-headers
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: verify_nodes
+  changed_when: false
+
+- name: "[verify] Nodes"
+  ansible.builtin.debug:
+    msg: "{{ verify_nodes.stdout }}"
+
+- name: "[verify] Assert all nodes Ready"
+  ansible.builtin.assert:
+    that: "'NotReady' not in verify_nodes.stdout"
+    fail_msg: "One or more nodes are NotReady:\n{{ verify_nodes.stdout }}"
+
+- name: "[verify] Assert final topology"
+  ansible.builtin.shell:
+    cmd: oc get infrastructure cluster -o jsonpath='{.status.controlPlaneTopology},{.status.infrastructureTopology}'
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: verify_topology
+  changed_when: false
+  failed_when: verify_topology.stdout != "HighlyAvailable,HighlyAvailable"
+
+- name: "[verify] Infrastructure topology transition complete"
+  ansible.builtin.debug:
+    msg: >-
+      Topology transition verified via cluster-config-operator conditions:
+      controlPlaneTopology=HighlyAvailable, infrastructureTopology=HighlyAvailable,
+      {{ verify_nodes.stdout_lines | length }} nodes Ready, router pods serving traffic.

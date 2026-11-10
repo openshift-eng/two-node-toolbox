@@ -1,0 +1,27 @@
+- name: "Phase 0: Optional test-scenario setup (simulate SingleReplica infra)"
+  import_tasks: setup-scenario.yml
+  when: infra_to_ha_simulate_single_replica | default(true) | bool
+
+- name: "Phase 1: Preflight checks"
+  import_tasks: preflight.yml
+
+- name: "Phase 2: Enable MutableTopology FeatureGate"
+  import_tasks: featuregate.yml
+  when: infra_to_ha_enable_featuregate | default(true) | bool
+
+- name: "Phase 3: Clean up Pending monitoring pods"
+  import_tasks: cleanup-pending-pods.yml
+  when: infra_to_ha_cleanup_pending_monitoring_pods | default(true) | bool
+
+- name: "Phase 4: Infrastructure topology transition"
+  import_tasks: topology.yml
+
+- name: "Phase 5: IngressController reconfiguration for HA"
+  import_tasks: ingress-reconfigure.yml
+
+- name: "Phase 6: Clean up Pending pods after transition"
+  import_tasks: cleanup-pending-pods.yml
+  when: infra_to_ha_cleanup_pending_monitoring_pods | default(true) | bool
+
+- name: "Phase 7: Final verification"
+  import_tasks: verify.yml

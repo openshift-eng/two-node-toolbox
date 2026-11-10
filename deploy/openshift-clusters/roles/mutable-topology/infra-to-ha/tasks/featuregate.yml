@@ -1,0 +1,123 @@
+# Enable the MutableTopology feature gate required by the cluster-config-operator
+# topology transition controller. Only patches when the gate is not active.
+
+- name: "[featuregate] Read FeatureGate cluster"
+  ansible.builtin.shell:
+    cmd: oc get featuregate cluster -o json
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: featuregate_raw
+  changed_when: false
+
+- name: "[featuregate] Parse FeatureGate"
+  ansible.builtin.set_fact:
+    infra_to_ha_featuregate: "{{ featuregate_raw.stdout | from_json }}"
+
+- name: "[featuregate] Determine enabled feature set and gates"
+  ansible.builtin.set_fact:
+    infra_to_ha_featureset: "{{ infra_to_ha_featuregate.spec.featureSet | default('') }}"
+    infra_to_ha_custom_gates: "{{ infra_to_ha_featuregate.spec.customNoUpgrade.enabled | default([]) + infra_to_ha_featuregate.spec.customNoUpgrade.disabled | default([]) }}"
+
+- name: "[featuregate] Check if all required gates are enabled"
+  ansible.builtin.set_fact:
+    infra_to_ha_gates_enabled: >-
+      {{ (infra_to_ha_featureset in ['TechPreviewNoUpgrade', 'CustomNoUpgrade', 'LatencySensitive'])
+         or (infra_to_ha_feature_gates | difference(infra_to_ha_custom_gates) | length == 0) }}
+
+- name: "[featuregate] Display FeatureGate state"
+  ansible.builtin.debug:
+    msg: "FeatureGate: featureSet={{ infra_to_ha_featureset or 'Default' }}, required gates {{ infra_to_ha_feature_gates }} enabled={{ infra_to_ha_gates_enabled }}"
+
+- name: "[featuregate] Fail if gates not enabled and featuregate management is disabled"
+  ansible.builtin.fail:
+    msg: >-
+      Required feature gates {{ infra_to_ha_feature_gates }} are not enabled
+      (featureSet={{ infra_to_ha_featureset or 'Default' }}) and
+      infra_to_ha_enable_featuregate=false.
+  when:
+    - not infra_to_ha_gates_enabled
+    - not infra_to_ha_enable_featuregate
+
+- name: "[featuregate] Enable required gates via CustomNoUpgrade feature set"
+  ansible.builtin.shell:
+    cmd: >
+      oc patch featuregate cluster --type merge
+      -p '{"spec":{"featureSet":"CustomNoUpgrade","customNoUpgrade":{"enabled":{{ infra_to_ha_feature_gates | to_json }}}}}'
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: featuregate_patch
+  changed_when: featuregate_patch.rc == 0
+  when:
+    - not infra_to_ha_gates_enabled
+    - infra_to_ha_enable_featuregate
+
+- name: "[featuregate] Wait for FeatureGate to report gates enabled"
+  ansible.builtin.shell:
+    cmd: |
+      oc get featuregate cluster -o json | jq -e --argjson gates '{{ infra_to_ha_feature_gates | to_json }}' '
+        . as $fg
+        | ($fg.spec.featureSet == "TechPreviewNoUpgrade")
+          or (($fg.spec.featureSet == "CustomNoUpgrade")
+              and (($gates - ($fg.spec.customNoUpgrade.enabled // [])) | length == 0))
+        | if . then "enabled" else empty end
+      '
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: featuregate_enabled_check
+  changed_when: false
+  retries: 12
+  delay: 10
+  until: featuregate_enabled_check.rc == 0
+  when:
+    - not infra_to_ha_gates_enabled
+    - infra_to_ha_enable_featuregate
+
+- name: "[featuregate] Wait for FeatureGate-triggered MCO rollout to complete (up to 40 minutes)"
+  ansible.builtin.shell:
+    cmd: |
+      oc get mcp -o json | jq -r \
+        '[.items[] | select([.status.conditions[]? | select(.type == "Updated" and .status == "False")] | length > 0) | .metadata.name] | join(",")'
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: featuregate_mcp_check
+  changed_when: false
+  retries: 240
+  delay: 10
+  until: (featuregate_mcp_check.stdout | default('')) | trim == ''
+  when:
+    - not infra_to_ha_gates_enabled
+    - infra_to_ha_enable_featuregate
+
+- name: "[featuregate] Wait for all nodes to be Ready again after rollout"
+  ansible.builtin.shell:
+    cmd: |
+      NOT_READY=$(oc get nodes -o json | jq -r '[.items[] | select([.status.conditions[]? | select(.type == "Ready" and .status != "True")] | length > 0) | .metadata.name] | join(",")')
+      if [ -n "${NOT_READY}" ]; then
+        echo "Nodes not Ready: ${NOT_READY}"
+        exit 1
+      fi
+      echo "All nodes Ready"
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: featuregate_nodes_check
+  changed_when: false
+  retries: 60
+  delay: 10
+  until: >-
+    featuregate_nodes_check is defined and
+    featuregate_nodes_check.rc is defined and
+    featuregate_nodes_check.rc == 0
+  when:
+    - not infra_to_ha_gates_enabled
+    - infra_to_ha_enable_featuregate
+
+- name: "[featuregate] Display rollout status"
+  ansible.builtin.debug:
+    msg: >-
+      FeatureGate rollout complete: all MachineConfigPools Updated and all
+      nodes Ready. Proceeding to cleanup and transition.
+  when:
+    - not infra_to_ha_gates_enabled
+    - infra_to_ha_enable_featuregate
+
+- name: "[featuregate] FeatureGate configuration complete"
+  ansible.builtin.debug:
+    msg: >-
+      Feature gates {{ infra_to_ha_feature_gates }} enabled
+      (featureSet={{ infra_to_ha_featureset if infra_to_ha_gates_enabled else 'CustomNoUpgrade' }}).
+      Note: CCO picks up the gate after its operator restarts.

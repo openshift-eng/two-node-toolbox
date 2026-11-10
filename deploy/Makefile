@@ -158,6 +158,9 @@ baremetal-wizard:
 sno-to-3node:
 	@./openshift-clusters/scripts/sno-to-3node.sh $(EXTRA_ARGS)
 
+infra-to-ha:
+	@./openshift-clusters/scripts/infra-to-ha.sh $(EXTRA_ARGS)
+
 patch-nodes:
 	@./openshift-clusters/scripts/patch-nodes.sh
 get-tnf-logs:
@@ -205,6 +208,15 @@ help:
 	@echo "                         Examples:"
 	@echo "                           make sno-to-3node EXTRA_ARGS=\"-e stop_before_transition_confirm=true\""
 	@echo "                           make sno-to-3node EXTRA_ARGS=\"-vv\""
+	@echo "  infra-to-ha          - Transition cluster infrastructureTopology SingleReplica -> HighlyAvailable"
+	@echo "                         (control plane must already be HA; enables MutableTopology FeatureGate;"
+	@echo "                         simulates SR infra via status patch when needed)"
+	@echo "                         Examples:"
+	@echo "                           make infra-to-ha EXTRA_ARGS=\"-e stop_before_transition_confirm=true\""
+	@echo "                           make infra-to-ha EXTRA_ARGS=\"-e infra_to_ha_simulate_single_replica=false\" (skip scenario setup)"
+	@echo "                           make infra-to-ha EXTRA_ARGS=\"-vv\""
+	@echo "                         Note: 'oc adm transition' is hidden behind"
+	@echo "                         OC_ENABLE_CMD_TRANSITION_TOPOLOGY=true when run manually"
 	@echo ""
 	@echo "OpenShift Cluster Management:"
 	@echo "  redeploy-cluster     - Redeploy OpenShift cluster using dev-scripts make redeploy"
@@ -230,6 +242,6 @@ help:
 	@echo ""
 	@echo "Advanced Usage:"
 	@echo "  Some commands accept EXTRA_ARGS to pass additional options to underlying tools:"
-	@echo "    - sno-to-3node and clean-mutable-topology: pass Ansible extra vars/verbosity"
+	@echo "    - sno-to-3node, infra-to-ha and clean-mutable-topology: pass Ansible extra vars/verbosity"
 	@echo "      Example: make sno-to-3node EXTRA_ARGS=\"-e my_var=value -vv\""
 

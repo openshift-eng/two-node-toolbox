@@ -1,0 +1,22 @@
+- hosts: metal_machine
+  gather_facts: no
+  force_handlers: yes
+
+  pre_tasks:
+    - name: Confirm infrastructure topology transition
+      ansible.builtin.pause:
+        prompt: >-
+          This will transition the cluster infrastructureTopology from SingleReplica
+          to HighlyAvailable (control plane topology is unchanged).
+          Press Enter to proceed or Ctrl+C to abort.
+      delegate_to: localhost
+      run_once: true
+      when: interactive_mode | default(true) | bool
+
+  roles:
+    - mutable-topology/infra-to-ha
+
+  tasks:
+    - name: Transition complete
+      ansible.builtin.debug:
+        msg: "Infrastructure topology transition to HighlyAvailable completed successfully."

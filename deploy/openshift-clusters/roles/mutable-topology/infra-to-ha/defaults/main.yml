@@ -1,0 +1,39 @@
+# Cluster identity — auto-detected from the cluster at runtime.
+# infra_to_ha_cluster_name is a static default used for the kubeconfig path
+# (override with -e infra_to_ha_cluster_name=... if needed)
+infra_to_ha_cluster_name: ostest
+
+# Enable the MutableTopology FeatureGate on the cluster before transitioning
+# (applied only if not already enabled; see featuregate.yml)
+infra_to_ha_enable_featuregate: true
+
+# Feature gates required for the topology transition controller
+infra_to_ha_feature_gates:
+  - MutableTopology
+
+# Delete Pending pods in openshift-monitoring before/after the transition.
+# Scaling infra components to SingleReplica (status patch) commonly leaves
+# monitoring/alerting pods stuck in Pending.
+infra_to_ha_cleanup_pending_monitoring_pods: true
+
+# Namespaces to sweep for Pending pods
+infra_to_ha_pending_pod_namespaces:
+  - openshift-monitoring
+
+# Test-scenario setup: patch Infrastructure.status.infrastructureTopology to
+# SingleReplica on an already-HA cluster to simulate a SR-infrastructure
+# cluster (the reverse of what a real deployment would produce).
+# Idempotent: skipped when infrastructureTopology is already SingleReplica.
+# WARNING: test/testing aid only - the status patch is not a supported state.
+infra_to_ha_simulate_single_replica: true
+
+# Uncordon nodes that are still cordoned while no MachineConfigPool is
+# updating (stale cordons left over from previous rollouts).
+infra_to_ha_uncordon_stale_nodes: true
+
+# Allow transition even when non-blocking readiness checks fail
+infra_to_ha_allow_transition_with_warnings: false
+
+# Paths (override if dev-scripts is in a non-standard location)
+infra_to_ha_kubeconfig: ""
+infra_to_ha_dev_scripts_path: "{{ dev_scripts_path | default('openshift-metal3/dev-scripts') }}"
