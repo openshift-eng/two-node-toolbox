@@ -8,6 +8,7 @@ supported_topologies:
   - arbiter
   - fencing
   - sno
+  - ha
 config_file:
   ipi: config_{{topology}}.sh
   agent: config_{{topology}}.sh

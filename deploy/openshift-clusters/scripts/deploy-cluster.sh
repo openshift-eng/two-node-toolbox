@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Unified cluster deployment script
-# Usage: deploy-cluster.sh --topology <arbiter|fencing> --method <ipi|agent|kcli>
+# Usage: deploy-cluster.sh --topology <arbiter|fencing|sno|ha> --method <ipi|agent|kcli>
 #
 
 # Get the directory where this script is located
@@ -32,10 +32,10 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         -h|--help)
-            echo "Usage: $0 --topology <arbiter|fencing> --method <ipi|agent|kcli>"
+            echo "Usage: $0 --topology <arbiter|fencing|sno|ha> --method <ipi|agent|kcli>"
             echo ""
             echo "Options:"
-            echo "  --topology   Cluster topology: arbiter or fencing"
+            echo "  --topology   Cluster topology: arbiter, fencing, sno, or ha"
             echo "  --method     Deployment method: ipi, agent, or kcli"
             exit 0
             ;;
@@ -49,7 +49,7 @@ done
 
 # Validate required arguments
 if [[ -z "${TOPOLOGY}" ]]; then
-    echo "Error: --topology is required (arbiter, fencing, or sno)"
+    echo "Error: --topology is required (arbiter, fencing, sno, or ha)"
     exit 1
 fi
 
@@ -59,8 +59,8 @@ if [[ -z "${METHOD}" ]]; then
 fi
 
 # Validate topology value
-if [[ "${TOPOLOGY}" != "arbiter" && "${TOPOLOGY}" != "fencing" && "${TOPOLOGY}" != "sno" ]]; then
-    echo "Error: Invalid topology '${TOPOLOGY}'. Must be 'arbiter', 'fencing', or 'sno'."
+if [[ "${TOPOLOGY}" != "arbiter" && "${TOPOLOGY}" != "fencing" && "${TOPOLOGY}" != "sno" && "${TOPOLOGY}" != "ha" ]]; then
+    echo "Error: Invalid topology '${TOPOLOGY}'. Must be 'arbiter', 'fencing', 'sno', or 'ha'."
     exit 1
 fi
 

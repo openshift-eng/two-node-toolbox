@@ -26,6 +26,7 @@ WORKTREE_SYNC_FILES=(
   "config_arbiter.sh:deploy/openshift-clusters/roles/dev-scripts/install-dev/files/config_arbiter.sh"
   "config_fencing.sh:deploy/openshift-clusters/roles/dev-scripts/install-dev/files/config_fencing.sh"
   "config_sno.sh:deploy/openshift-clusters/roles/dev-scripts/install-dev/files/config_sno.sh"
+  "config_ha.sh:deploy/openshift-clusters/roles/dev-scripts/install-dev/files/config_ha.sh"
 )
 
 # ---------------------------------------------------------------------------

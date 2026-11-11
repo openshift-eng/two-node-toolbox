@@ -1,5 +1,5 @@
 # Valid cluster types for 'make deploy <cluster-type>'
-VALID_CLUSTER_TYPES := fencing-ipi fencing-agent fencing-assisted arbiter-ipi arbiter-agent arbiter-kcli fencing-kcli sno-ipi sno-agent
+VALID_CLUSTER_TYPES := fencing-ipi fencing-agent fencing-assisted arbiter-ipi arbiter-agent arbiter-kcli fencing-kcli sno-ipi sno-agent ha-ipi ha-agent
 
 # AWS hypervisor checks are off by default for doctor; opt in with AWS=1
 AWS ?= 0
@@ -123,6 +123,12 @@ sno-ipi:
 sno-agent:
 	@./openshift-clusters/scripts/deploy-cluster.sh --topology sno --method agent
 
+ha-ipi:
+	@./openshift-clusters/scripts/deploy-cluster.sh --topology ha --method ipi
+
+ha-agent:
+	@./openshift-clusters/scripts/deploy-cluster.sh --topology ha --method agent
+
 arbiter-kcli:
 	@./openshift-clusters/scripts/deploy-cluster.sh --topology arbiter --method kcli
 
@@ -193,6 +199,8 @@ help:
 	@echo "  fencing-assisted     - Deploy hub + spoke TNF cluster via assisted installer"
 	@echo "  sno-ipi              - Deploy Single Node OpenShift (SNO) IPI cluster (non-interactive)"
 	@echo "  sno-agent            - Deploy Single Node OpenShift (SNO) Agent cluster (non-interactive)"
+	@echo "  ha-ipi               - Deploy standard HA cluster: 3 masters + 2 workers (IPI, non-interactive)"
+	@echo "  ha-agent             - Deploy standard HA cluster: 3 masters + 2 workers (Agent, non-interactive)"
 	@echo "  sno-to-3node         - Transition existing SNO cluster to 3-node HA (platform:none)"
 	@echo "                         Examples:"
 	@echo "                           make sno-to-3node EXTRA_ARGS=\"-e stop_before_transition_confirm=true\""
