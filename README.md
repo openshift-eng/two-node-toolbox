@@ -21,6 +21,8 @@ make deploy arbiter-agent  # Two-Node with Arbiter (Agent method)
 make deploy fencing-ipi    # Two-Node with Fencing (IPI method)
 make deploy sno-ipi        # Single Node OpenShift (IPI method)
 make deploy sno-agent      # Single Node OpenShift (Agent method)
+make deploy ha-ipi         # Standard HA cluster: 3 masters + 2 workers (IPI method)
+make deploy ha-agent       # Standard HA cluster: 3 masters + 2 workers (Agent method)
 
 # Other useful commands
 make ssh                   # SSH into hypervisor
@@ -69,6 +71,8 @@ See [deploy/openshift-clusters/README-external-host.md](deploy/openshift-cluster
 **Two-Node with Fencing (TNF)**: Two master nodes with BMC-based fencing for automated node recovery. See [docs/fencing/README.md](docs/fencing/README.md)
 
 **Single Node OpenShift (SNO)**: Single master node deployment for resource-constrained environments. Supports both IPI (`sno-ipi`) and Agent-based (`sno-agent`) installation methods.
+
+**Standard HA**: 3 masters + 2 workers with both topologies set to HighlyAvailable. Supports both IPI (`ha-ipi`) and Agent-based (`ha-agent`) installation methods.
 
 ## First-Time Setup Helper
 

@@ -5,4 +5,5 @@ config_arbiter.sh
 config_fencing.sh
 config_sno.sh
 config_baremetal_fencing.sh
+config_ha.sh
 ironic_nodes.json

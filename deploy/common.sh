@@ -28,6 +28,7 @@ CONFIG_SYNC_MANIFEST=(
   "config_arbiter.sh:deploy/openshift-clusters/roles/dev-scripts/install-dev/files/config_arbiter.sh"
   "config_fencing.sh:deploy/openshift-clusters/roles/dev-scripts/install-dev/files/config_fencing.sh"
   "config_sno.sh:deploy/openshift-clusters/roles/dev-scripts/install-dev/files/config_sno.sh"
+  "config_ha.sh:deploy/openshift-clusters/roles/dev-scripts/install-dev/files/config_ha.sh"
   "config_baremetal_fencing.sh:deploy/openshift-clusters/roles/dev-scripts/install-dev/files/config_baremetal_fencing.sh"
   "pull-secret.json:deploy/openshift-clusters/roles/dev-scripts/install-dev/files/pull-secret.json:deploy/openshift-clusters/roles/kcli/kcli-install/files/pull-secret.json"
   "kcli.yml:deploy/openshift-clusters/vars/kcli.yml"

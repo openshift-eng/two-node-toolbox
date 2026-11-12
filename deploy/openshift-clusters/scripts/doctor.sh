@@ -77,7 +77,7 @@ usage() {
   echo ""
   echo "Valid cluster types: fencing-ipi fencing-agent fencing-assisted"
   echo "                     fencing-kcli arbiter-ipi arbiter-agent arbiter-kcli"
-  echo "                     sno-ipi sno-agent"
+  echo "                     sno-ipi sno-agent ha-ipi ha-agent"
 }
 
 # --- Argument parsing (targeted mode) ---
@@ -107,7 +107,7 @@ for arg in "$@"; do
       REQUIRED_TOPOLOGIES+="fencing "
       TARGETED_TYPES+=" ${arg}"
       ;;
-    arbiter-ipi|arbiter-agent|fencing-ipi|fencing-agent|sno-ipi|sno-agent)
+    arbiter-ipi|arbiter-agent|fencing-ipi|fencing-agent|sno-ipi|sno-agent|ha-ipi|ha-agent)
       TARGETED=1
       NEED_DEVSCRIPTS=1
       REQUIRED_TOPOLOGIES+="${arg%-*} "
@@ -317,7 +317,7 @@ else
     "download it from https://cloud.redhat.com/openshift/install/pull-secret and save it to ${CONFIG_DIR}/pull-secret.json"
 fi
 
-for topology in arbiter fencing sno; do
+for topology in arbiter fencing sno ha; do
   CONFIG_FILE="${DS_FILES_DIR}/config_${topology}.sh"
   if [[ ! -f "${CONFIG_FILE}" ]]; then
     if topology_required "${topology}"; then
