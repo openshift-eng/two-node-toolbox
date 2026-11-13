@@ -1,9 +1,14 @@
-# Force-delete monitoring pods stuck on cordoned (unschedulable) nodes and
+# Force-delete monitoring pods on cordoned (unschedulable) nodes and
 # uncordon stale cordons left over from previous rollouts.
 #
-# During the topology transition the MCO may cordon nodes, leaving
-# openshift-monitoring pods Pending/terminating on them; force-deleting them
-# lets them reschedule onto schedulable nodes.
+# During the topology transition the MCO may cordon + drain nodes; drain uses
+# the eviction API which respects PDBs, and with monitoring scaled to
+# SingleReplica the PDBs allow no disruption, so prometheus/alertmanager pods
+# can never be evicted and the drain hangs. Force-deleting the pods bound to
+# a cordoned node (bypassing their PDBs) lets the drain finish and the
+# transition proceed. Pods owned by a DaemonSet (node-exporter) are skipped:
+# drain ignores DaemonSets anyway and they would be recreated on the same
+# cordoned node.
 #
 # Nodes that are still cordoned while NO MachineConfigPool is updating are
 # considered stale (left over from an earlier rollout) and get uncordoned.
@@ -77,7 +82,10 @@
 - name: "[pods] Check for monitoring pods on unschedulable nodes"
   ansible.builtin.shell:
     cmd: |
-      oc get pods -n {{ item.0 }} --field-selector "spec.nodeName={{ item.1 }}" -o name
+      oc get pods -n {{ item.0 }} --field-selector "spec.nodeName={{ item.1 }}" -o json | jq -r '
+        .items[]
+        | select(([.metadata.ownerReferences[]? | select(.kind == "DaemonSet")] | length) == 0)
+        | .metadata.name'
   environment: "{{ infra_to_ha_oc_env }}"
   loop: "{{ infra_to_ha_pending_pod_namespaces | product(infra_to_ha_unschedulable_nodes) }}"
   loop_control:
@@ -87,10 +95,13 @@
   failed_when: false
   when: infra_to_ha_unschedulable_nodes | length > 0
 
-- name: "[pods] Force-delete monitoring pods on unschedulable nodes"
+- name: "[pods] Force-delete monitoring pods on unschedulable nodes (skip DaemonSet pods)"
   ansible.builtin.shell:
     cmd: |
-      PODS=$(oc get pods -n {{ item.item.0 }} --field-selector "spec.nodeName={{ item.item.1 }}" -o name)
+      PODS=$(oc get pods -n {{ item.item.0 }} --field-selector "spec.nodeName={{ item.item.1 }}" -o json | jq -r '
+        .items[]
+        | select(([.metadata.ownerReferences[]? | select(.kind == "DaemonSet")] | length) == 0)
+        | .metadata.name')
       if [ -n "$PODS" ]; then
         echo "$PODS" | xargs -r oc delete -n {{ item.item.0 }} --grace-period=0 --force
       fi

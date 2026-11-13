@@ -25,6 +25,7 @@
 - name: "[verify] Infrastructure topology transition complete"
   ansible.builtin.debug:
     msg: >-
-      Topology transition verified via cluster-config-operator conditions:
-      controlPlaneTopology=HighlyAvailable, infrastructureTopology=HighlyAvailable,
-      {{ verify_nodes.stdout_lines | length }} nodes Ready, router pods serving traffic.
+      Topology transition verified: controlPlaneTopology=HighlyAvailable,
+      infrastructureTopology=HighlyAvailable per Infrastructure.status,
+      {{ verify_nodes.stdout_lines | length }} nodes Ready, router pods
+      serving traffic.

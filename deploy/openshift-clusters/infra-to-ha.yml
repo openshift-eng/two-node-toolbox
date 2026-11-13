@@ -8,6 +8,10 @@
         prompt: >-
           This will transition the cluster infrastructureTopology from SingleReplica
           to HighlyAvailable (control plane topology is unchanged).
+          By default the SR state is first simulated via an unsupported
+          Infrastructure.status patch, and the MutableTopology FeatureGate is
+          enabled by switching the cluster to featureSet CustomNoUpgrade -
+          that switch is irreversible and blocks cluster upgrades.
           Press Enter to proceed or Ctrl+C to abort.
       delegate_to: localhost
       run_once: true

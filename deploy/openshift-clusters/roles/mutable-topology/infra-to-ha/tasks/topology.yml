@@ -3,14 +3,9 @@
 #   - cluster-config-operator with topology transition controller support for
 #     infrastructure-only transitions (openshift/cluster-config-operator#525)
 #   - oc with 'oc adm transition topology' (openshift/oc#2436)
-
-- name: "[topology] Check if oc adm transition topology command is available"
-  ansible.builtin.shell:
-    cmd: oc adm transition topology --help
-  environment: "{{ infra_to_ha_oc_env }}"
-  register: topology_cmd_check
-  changed_when: false
-  failed_when: false
+# The oc capability is probed in precheck.yml (before any mutation); the
+# fail task below is a backstop for the case where the scenario setup was
+# skipped (simulation off) on a genuine SingleReplica cluster.
 
 - name: "[topology] Fail if transition needed but command unavailable"
   ansible.builtin.fail:
@@ -42,19 +37,30 @@
     cmd: |
       # Enabling the MutableTopology FeatureGate (and prior SingleReplica
       # simulation) can leave the MCO mid-rollout with a node cordoned and
-      # stuck draining (monitoring pods with PDBs / stuck termination keep
-      # the drain from finishing). A cordoned node is not schedulable, so the
-      # transition preflight check WorkerCapableNodesReady keeps failing.
-      # Unblock on every poll: force-delete pods blocking the drain, and
+      # stuck draining (PDB-protected monitoring pods keep the drain from
+      # finishing; drain ignores DaemonSet pods, so those are skipped). A
+      # cordoned node is not schedulable, so the transition preflight check
+      # WorkerCapableNodesReady keeps failing. Unblock on every poll:
+      # force-delete the pods blocking the drain (bypassing their PDBs) and
       # uncordon nodes whose cordon is stale (no MachineConfigPool updating).
       for node in $(oc get nodes -o jsonpath='{range .items[?(@.spec.unschedulable)]}{.metadata.name}{"\n"}{end}'); do
         {% for ns in infra_to_ha_pending_pod_namespaces %}
-        oc get pods -n {{ ns }} --field-selector "spec.nodeName=${node}" -o name | \
-          xargs -r oc delete -n {{ ns }} --grace-period=0 --force 2>/dev/null || true
+        oc get pods -n {{ ns }} --field-selector "spec.nodeName=${node}" -o json | jq -r '
+          .items[]
+          | select(([.metadata.ownerReferences[]? | select(.kind == "DaemonSet")] | length) == 0)
+          | .metadata.name' | xargs -r oc delete -n {{ ns }} --grace-period=0 --force 2>/dev/null || true
         {% endfor %}
       done
 
-      UPDATING_MCPS=$(oc get mcp -o json | jq -r \
+      set -o pipefail
+      MCP=$(oc get mcp -o json)
+      if [ -z "${MCP}" ]; then
+        # An API blip must not look like 'no pools updating' (that would
+        # uncordon nodes the MCO cordoned mid-rollout) - fail so the poll retries
+        echo "Failed to read MachineConfigPools"
+        exit 1
+      fi
+      UPDATING_MCPS=$(echo "${MCP}" | jq -r \
         '[.items[] | select([.status.conditions[]? | select(.type == "Updated" and .status == "False")] | length > 0) | .metadata.name] | join(",")')
       if [ -z "$UPDATING_MCPS" ]; then
         for node in $(oc get nodes -o jsonpath='{range .items[?(@.spec.unschedulable)]}{.metadata.name}{"\n"}{end}'); do
@@ -118,6 +124,9 @@
   environment: "{{ infra_to_ha_oc_env }}"
   register: transition_result
   changed_when: false
+  # Let the task complete so the detailed failure message in
+  # '[topology] Check if transition command succeeded' below is what users see
+  failed_when: false
   when:
     - topology_cmd_check.rc == 0
     - not infra_to_ha_already_ha
@@ -205,6 +214,34 @@
     - topology_cmd_check.rc == 0
     - not infra_to_ha_already_ha
 
+- name: "[topology] Fail if CCO did not reconcile status (manual patch not allowed)"
+  ansible.builtin.fail:
+    msg: |
+      The cluster-config-operator did NOT automatically update
+      Infrastructure.status within 5 minutes after spec was patched.
+
+      This indicates one of the following:
+        1. The CCO topology controller does not support infrastructure-only
+           transitions in this payload (needs openshift/cluster-config-operator#525)
+        2. The CCO controller encountered an error during reconciliation
+        3. The controller loop timing is longer than expected (it may still
+           complete if you rerun later)
+
+      Refusing to hand-patch status by default: a manual status patch would
+      report a successful transition exactly when the controller did not do
+      the work, and could race a CCO that is merely slow.
+
+      ACTION REQUIRED:
+        - Verify CCO logs: oc logs -n openshift-cluster-config-operator ...
+        - Check if mutable-topology-controller is present in CCO image
+        - To fall back to a manual status patch anyway (test aid only), rerun with:
+            make infra-to-ha EXTRA_ARGS="-e infra_to_ha_allow_manual_status_patch=true"
+  when:
+    - topology_cmd_check.rc == 0
+    - not infra_to_ha_already_ha
+    - not infra_to_ha_cco_reconciled
+    - not (infra_to_ha_allow_manual_status_patch | default(false) | bool)
+
 - name: "[topology] WARNING: CCO did not reconcile status - applying manual patch fallback"
   ansible.builtin.debug:
     msg: |
@@ -217,7 +254,9 @@
         2. The CCO controller encountered an error during reconciliation
         3. The controller loop timing is longer than expected
 
-      Applying MANUAL PATCH as fallback to complete the topology transition.
+      Applying MANUAL PATCH as fallback (opt-in via
+      infra_to_ha_allow_manual_status_patch=true) to complete the topology
+      transition. NOTE: the transition controller did NOT do this work.
 
       ACTION REQUIRED:
         - Verify CCO logs: oc logs -n openshift-cluster-config-operator ...
@@ -226,6 +265,7 @@
     - topology_cmd_check.rc == 0
     - not infra_to_ha_already_ha
     - not infra_to_ha_cco_reconciled
+    - infra_to_ha_allow_manual_status_patch | default(false) | bool
 
 - name: "[topology] Apply manual Infrastructure.status patch (fallback)"
   ansible.builtin.shell:
@@ -237,6 +277,7 @@
     - topology_cmd_check.rc == 0
     - not infra_to_ha_already_ha
     - not infra_to_ha_cco_reconciled
+    - infra_to_ha_allow_manual_status_patch | default(false) | bool
 
 - name: "[topology] Verify manual patch applied successfully"
   ansible.builtin.shell:
@@ -249,20 +290,25 @@
     - topology_cmd_check.rc == 0
     - not infra_to_ha_already_ha
     - not infra_to_ha_cco_reconciled
+    - infra_to_ha_allow_manual_status_patch | default(false) | bool
 
 - name: "[topology] Wait for transition to complete per 'oc adm transition status' (up to 20 minutes)"
   ansible.builtin.shell:
     cmd: |
       set -o pipefail
 
-      # The MCO may cordon nodes during the transition, leaving monitoring pods
-      # stranded on unschedulable nodes. Those pods block the node drain, which
-      # blocks the MCO rollout and keeps the transition from completing.
-      # Force-delete them on every poll so the transition can make progress.
+      # The MCO may cordon nodes during the transition, leaving PDB-protected
+      # monitoring pods unevictable on unschedulable nodes. Those pods block
+      # the node drain, which blocks the MCO rollout and keeps the transition
+      # from completing. Force-delete them on every poll (bypassing their
+      # PDBs; DaemonSet pods are skipped since drain ignores them anyway) so
+      # the transition can make progress.
       for node in $(oc get nodes -o jsonpath='{range .items[?(@.spec.unschedulable)]}{.metadata.name}{"\n"}{end}'); do
         {% for ns in infra_to_ha_pending_pod_namespaces %}
-        oc get pods -n {{ ns }} --field-selector "spec.nodeName=${node}" -o name | \
-          xargs -r oc delete -n {{ ns }} --grace-period=0 --force 2>/dev/null || true
+        oc get pods -n {{ ns }} --field-selector "spec.nodeName=${node}" -o json | jq -r '
+          .items[]
+          | select(([.metadata.ownerReferences[]? | select(.kind == "DaemonSet")] | length) == 0)
+          | .metadata.name' | xargs -r oc delete -n {{ ns }} --grace-period=0 --force 2>/dev/null || true
         {% endfor %}
       done
 

@@ -42,7 +42,9 @@
   register: delete_operator_pod
   changed_when: delete_operator_pod.rc == 0
   failed_when: false
-  when: "'needs_deletion=true' in ingress_check.stdout"
+  when:
+    - infra_to_ha_needs_transition | default(false)
+    - "'needs_deletion=true' in ingress_check.stdout"
 
 - name: "[ingress] Wait for ingress-operator pod to restart"
   ansible.builtin.shell:
@@ -55,7 +57,9 @@
   retries: 12
   delay: 5
   until: operator_pod_check.rc == 0
-  when: "'needs_deletion=true' in ingress_check.stdout"
+  when:
+    - infra_to_ha_needs_transition | default(false)
+    - "'needs_deletion=true' in ingress_check.stdout"
 
 - name: "[ingress] Delete IngressController to trigger recreation with HA defaults"
   ansible.builtin.shell:
@@ -63,7 +67,9 @@
   environment: "{{ infra_to_ha_oc_env }}"
   register: delete_ingress
   changed_when: delete_ingress.rc == 0
-  when: "'needs_deletion=true' in ingress_check.stdout"
+  when:
+    - infra_to_ha_needs_transition | default(false)
+    - "'needs_deletion=true' in ingress_check.stdout"
 
 - name: "[ingress] Wait for IngressController automatic recreation"
   ansible.builtin.shell:
@@ -74,7 +80,9 @@
   retries: 12
   delay: 10
   until: ingress_recreate_check.rc == 0
-  when: "'needs_deletion=true' in ingress_check.stdout"
+  when:
+    - infra_to_ha_needs_transition | default(false)
+    - "'needs_deletion=true' in ingress_check.stdout"
 
 - name: "[ingress] Verify IngressController has correct replicas for HA"
   ansible.builtin.shell:
@@ -137,7 +145,10 @@
 - name: "[ingress] IngressController reconfiguration complete"
   ansible.builtin.debug:
     msg: |-
-      {% if 'needs_deletion=true' in ingress_check.stdout %}
+      {% if not (infra_to_ha_needs_transition | default(false)) %}
+      - Verify-only run (already HighlyAvailable): IngressController checked, not modified
+      - Router pods ready and serving traffic
+      {% elif 'needs_deletion=true' in ingress_check.stdout %}
       - IngressController recreated with HA defaults
       - Router pods ready and serving traffic
       {% else %}

@@ -15,13 +15,14 @@
 - name: "[featuregate] Determine enabled feature set and gates"
   ansible.builtin.set_fact:
     infra_to_ha_featureset: "{{ infra_to_ha_featuregate.spec.featureSet | default('') }}"
-    infra_to_ha_custom_gates: "{{ infra_to_ha_featuregate.spec.customNoUpgrade.enabled | default([]) + infra_to_ha_featuregate.spec.customNoUpgrade.disabled | default([]) }}"
+    infra_to_ha_custom_gates: "{{ infra_to_ha_featuregate.spec.customNoUpgrade.enabled | default([]) }}"
 
 - name: "[featuregate] Check if all required gates are enabled"
   ansible.builtin.set_fact:
     infra_to_ha_gates_enabled: >-
-      {{ (infra_to_ha_featureset in ['TechPreviewNoUpgrade', 'CustomNoUpgrade', 'LatencySensitive'])
-         or (infra_to_ha_feature_gates | difference(infra_to_ha_custom_gates) | length == 0) }}
+      {{ (infra_to_ha_featureset == 'TechPreviewNoUpgrade')
+         or (infra_to_ha_featureset == 'CustomNoUpgrade'
+             and (infra_to_ha_feature_gates | difference(infra_to_ha_custom_gates) | length == 0)) }}
 
 - name: "[featuregate] Display FeatureGate state"
   ansible.builtin.debug:
@@ -37,11 +38,35 @@
     - not infra_to_ha_gates_enabled
     - not infra_to_ha_enable_featuregate
 
-- name: "[featuregate] Enable required gates via CustomNoUpgrade feature set"
+- name: "[featuregate] Capture current rendered MachineConfigs (rollout baseline)"
   ansible.builtin.shell:
-    cmd: >
-      oc patch featuregate cluster --type merge
-      -p '{"spec":{"featureSet":"CustomNoUpgrade","customNoUpgrade":{"enabled":{{ infra_to_ha_feature_gates | to_json }}}}}'
+    cmd: |
+      set -o pipefail
+      oc get mcp -o json | jq -r '[.items[] | .spec.configuration.name] | sort | join(",")'
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: featuregate_mcp_baseline
+  changed_when: false
+  when:
+    - not infra_to_ha_gates_enabled
+    - infra_to_ha_enable_featuregate
+
+- name: "[featuregate] Enable required gates via CustomNoUpgrade feature set"
+  # JSON patch: preserves any existing customNoUpgrade.enabled gates (merge
+  # patch would replace the whole array) by appending only the missing ones.
+  ansible.builtin.shell:
+    cmd: |
+      OPS=$(jq -nc \
+        --argjson gates '{{ infra_to_ha_feature_gates | to_json }}' \
+        --argjson fg '{{ infra_to_ha_featuregate | to_json }}' '
+        [{op: "add", path: "/spec/featureSet", value: "CustomNoUpgrade"}]
+        + (if ($fg.spec.customNoUpgrade.enabled == null)
+           then [{op: "add", path: "/spec/customNoUpgrade/enabled", value: []}]
+           else [] end)
+        + [$gates[]
+           | select((($fg.spec.customNoUpgrade.enabled // []) | index(.)) == null)
+           | {op: "add", path: "/spec/customNoUpgrade/enabled/-", value: .}]
+      ')
+      oc patch featuregate cluster --type json -p "$OPS"
   environment: "{{ infra_to_ha_oc_env }}"
   register: featuregate_patch
   changed_when: featuregate_patch.rc == 0
@@ -52,6 +77,7 @@
 - name: "[featuregate] Wait for FeatureGate to report gates enabled"
   ansible.builtin.shell:
     cmd: |
+      set -o pipefail
       oc get featuregate cluster -o json | jq -e --argjson gates '{{ infra_to_ha_feature_gates | to_json }}' '
         . as $fg
         | ($fg.spec.featureSet == "TechPreviewNoUpgrade")
@@ -69,10 +95,66 @@
     - not infra_to_ha_gates_enabled
     - infra_to_ha_enable_featuregate
 
+- name: "[featuregate] Wait for MCO rollout to start (up to 10 minutes)"
+  # The gates-enabled wait above only validates .spec (which we just wrote),
+  # so the MCO pools still report Updated=True until the new MachineConfig is
+  # rendered. Wait for the rendered configuration to change before waiting
+  # for completion - otherwise the completion wait passes on iteration 1.
+  # A timeout is not fatal (warn only): if no MachineConfig changed, there is
+  # no rollout to wait for.
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      CURRENT=$(oc get mcp -o json | jq -r '[.items[] | .spec.configuration.name] | sort | join(",")')
+      if [ -z "${CURRENT}" ]; then
+        echo "Failed to read MachineConfigPools"
+        exit 1
+      fi
+      if [ "${CURRENT}" = "{{ featuregate_mcp_baseline.stdout | default('') | trim }}" ]; then
+        echo "Rendered MachineConfigs unchanged - rollout not started yet"
+        exit 1
+      fi
+      echo "MCO rollout started: ${CURRENT}"
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: featuregate_rollout_started
+  changed_when: false
+  retries: 60
+  delay: 10
+  until: >-
+    featuregate_rollout_started is defined and
+    featuregate_rollout_started.rc is defined and
+    featuregate_rollout_started.rc == 0
+  ignore_errors: true
+  when:
+    - not infra_to_ha_gates_enabled
+    - infra_to_ha_enable_featuregate
+
+- name: "[featuregate] WARNING - MCO rollout did not start within 10 minutes"
+  ansible.builtin.debug:
+    msg: >-
+      The rendered MachineConfigs did not change after enabling the feature
+      gates. Either the MCO does not need to roll out for these gates, or the
+      rollout could not start - continuing, but watch the transition closely.
+  when:
+    - not infra_to_ha_gates_enabled
+    - infra_to_ha_enable_featuregate
+    - featuregate_rollout_started is failed
+
 - name: "[featuregate] Wait for FeatureGate-triggered MCO rollout to complete (up to 40 minutes)"
   ansible.builtin.shell:
     cmd: |
-      oc get mcp -o json | jq -r \
+      set -o pipefail
+      MCP=$(oc get mcp -o json)
+      if [ -z "${MCP}" ]; then
+        echo "Failed to read MachineConfigPools"
+        exit 1
+      fi
+      # An empty items list must not look like 'all pools updated'
+      echo "${MCP}" | jq -e '.items | length > 0' >/dev/null || {
+        echo "No MachineConfigPools found"
+        exit 1
+      }
+      echo "${MCP}" | jq -r \
         '[.items[] | select([.status.conditions[]? | select(.type == "Updated" and .status == "False")] | length > 0) | .metadata.name] | join(",")'
   environment: "{{ infra_to_ha_oc_env }}"
   register: featuregate_mcp_check
@@ -87,7 +169,18 @@
 - name: "[featuregate] Wait for all nodes to be Ready again after rollout"
   ansible.builtin.shell:
     cmd: |
-      NOT_READY=$(oc get nodes -o json | jq -r '[.items[] | select([.status.conditions[]? | select(.type == "Ready" and .status != "True")] | length > 0) | .metadata.name] | join(",")')
+      set -o pipefail
+      NODES=$(oc get nodes -o json)
+      if [ -z "${NODES}" ]; then
+        echo "Failed to read nodes"
+        exit 1
+      fi
+      # An empty items list must not look like 'all nodes Ready'
+      echo "${NODES}" | jq -e '.items | length > 0' >/dev/null || {
+        echo "No nodes found"
+        exit 1
+      }
+      NOT_READY=$(echo "${NODES}" | jq -r '[.items[] | select([.status.conditions[]? | select(.type == "Ready" and .status != "True")] | length > 0) | .metadata.name] | join(",")')
       if [ -n "${NOT_READY}" ]; then
         echo "Nodes not Ready: ${NOT_READY}"
         exit 1

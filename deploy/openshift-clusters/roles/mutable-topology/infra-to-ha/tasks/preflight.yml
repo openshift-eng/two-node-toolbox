@@ -44,58 +44,9 @@
       → Will transition infrastructureTopology SingleReplica -> HighlyAvailable
       {% endif %}
 
-- name: "[preflight] Get cluster nodes"
-  ansible.builtin.shell:
-    cmd: oc get nodes -o json
-  environment: "{{ infra_to_ha_oc_env }}"
-  register: nodes_raw
-  changed_when: false
-
-- name: "[preflight] Parse node data"
-  ansible.builtin.set_fact:
-    infra_to_ha_nodes: "{{ (nodes_raw.stdout | from_json)['items'] }}"
-
-- name: "[preflight] Assert minimum node count"
-  ansible.builtin.assert:
-    that: (infra_to_ha_nodes | length) >= 2
-    fail_msg: >-
-      Expected at least 2 nodes, found {{ infra_to_ha_nodes | length }}.
-      Cluster is in an unexpected state.
-
-- name: "[preflight] Assert all nodes Ready"
-  ansible.builtin.assert:
-    that: >-
-      infra_to_ha_nodes
-      | map(attribute='status.conditions')
-      | flatten
-      | selectattr('type', 'equalto', 'Ready')
-      | map(attribute='status')
-      | unique == ['True']
-    fail_msg: "One or more nodes are not Ready"
-
-- name: "[preflight] Check for degraded cluster operators"
-  ansible.builtin.shell:
-    cmd: |
-      DEGRADED=$(oc get co -o json | jq -r '[.items[] | select(.status.conditions[] | select(.type=="Degraded" and .status=="True")) | .metadata.name] | join(", ")')
-      if [ -n "$DEGRADED" ]; then
-        echo "Degraded COs: $DEGRADED"
-        exit 1
-      fi
-      echo "All cluster operators healthy"
-  environment: "{{ infra_to_ha_oc_env }}"
-  register: co_check
-  changed_when: false
-  failed_when: false
-
-- name: "[preflight] Display CO status"
-  ansible.builtin.debug:
-    msg: "{{ co_check.stdout }}"
-
-- name: "[preflight] Warn if COs degraded"
-  ansible.builtin.debug:
-    msg: "WARNING: Some COs are degraded. Proceeding anyway."
-  when: co_check.rc != 0
-
 - name: "[preflight] Preflight checks passed"
   ansible.builtin.debug:
-    msg: "All preflight checks passed. Ready for infrastructure topology transition."
+    msg: >-
+      Preflight checks passed (node readiness and cluster operator health were
+      already verified in the read-only pre-checks). Ready for infrastructure
+      topology transition.
