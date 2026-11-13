@@ -1,0 +1,11 @@
+# Control flag: stop right before applying --confirm (for manual testing)
+stop_before_transition_confirm: false
+
+infra_to_ha_kubeconfig_resolved: >-
+  {{ infra_to_ha_kubeconfig if infra_to_ha_kubeconfig
+     else infra_to_ha_dev_scripts_path ~ '/ocp/' ~ infra_to_ha_cluster_name ~ '/auth/kubeconfig' }}
+
+infra_to_ha_oc_env:
+  KUBECONFIG: "{{ infra_to_ha_kubeconfig_resolved }}"
+  PATH: "/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:{{ ansible_env.PATH | default('/usr/local/bin:/usr/bin') }}"
+  OC_ENABLE_CMD_TRANSITION_TOPOLOGY: "true"

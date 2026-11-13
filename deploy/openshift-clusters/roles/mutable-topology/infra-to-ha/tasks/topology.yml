@@ -1,0 +1,389 @@
+# Infrastructure-only topology transition (SingleReplica -> HighlyAvailable)
+# Requires:
+#   - cluster-config-operator with topology transition controller support for
+#     infrastructure-only transitions (openshift/cluster-config-operator#525)
+#   - oc with 'oc adm transition topology' (openshift/oc#2436)
+# The oc capability is probed in precheck.yml (before any mutation); the
+# fail task below is a backstop for the case where the scenario setup was
+# skipped (simulation off) on a genuine SingleReplica cluster.
+
+- name: "[topology] Fail if transition needed but command unavailable"
+  ansible.builtin.fail:
+    msg: |
+      The 'oc adm transition topology' command is not available with this oc.
+
+      Check the following, in order:
+        1. The command is hidden behind an env var - set it and retry manually:
+             export OC_ENABLE_CMD_TRANSITION_TOPOLOGY=true
+             oc adm transition topology --infrastructure=HighlyAvailable
+           (Note: the playbook already sets this env var for its own tasks.)
+        2. Your oc binary predates the command - check 'oc version' and install
+           an oc with 'oc adm transition topology' support (openshift/oc#2436).
+        3. The payload's cluster-config-operator must support infrastructure-only
+           topology transitions (openshift/cluster-config-operator#525).
+  when:
+    - topology_cmd_check.rc != 0
+    - not infra_to_ha_already_ha
+
+- name: "[topology] Skip transition - already HighlyAvailable"
+  ansible.builtin.debug:
+    msg: |
+      infrastructureTopology is already HighlyAvailable.
+      Skipping topology transition tasks.
+  when: infra_to_ha_already_ha
+
+- name: "[topology] Wait for cluster to be ready for transition (up to 20 minutes)"
+  ansible.builtin.shell:
+    cmd: |
+      # Enabling the MutableTopology FeatureGate (and prior SingleReplica
+      # simulation) can leave the MCO mid-rollout with a node cordoned and
+      # stuck draining (PDB-protected monitoring pods keep the drain from
+      # finishing; drain ignores DaemonSet pods, so those are skipped). A
+      # cordoned node is not schedulable, so the transition preflight check
+      # WorkerCapableNodesReady keeps failing. Unblock on every poll:
+      # force-delete the pods blocking the drain (bypassing their PDBs) and
+      # uncordon nodes whose cordon is stale (no MachineConfigPool updating).
+      for node in $(oc get nodes -o jsonpath='{range .items[?(@.spec.unschedulable)]}{.metadata.name}{"\n"}{end}'); do
+        {% for ns in infra_to_ha_pending_pod_namespaces %}
+        oc get pods -n {{ ns }} --field-selector "spec.nodeName=${node}" -o json | jq -r '
+          .items[]
+          | select(([.metadata.ownerReferences[]? | select(.kind == "DaemonSet")] | length) == 0)
+          | .metadata.name' | xargs -r oc delete -n {{ ns }} --grace-period=0 --force 2>/dev/null || true
+        {% endfor %}
+      done
+
+      set -o pipefail
+      MCP=$(oc get mcp -o json)
+      if [ -z "${MCP}" ]; then
+        # An API blip must not look like 'no pools updating' (that would
+        # uncordon nodes the MCO cordoned mid-rollout) - fail so the poll retries
+        echo "Failed to read MachineConfigPools"
+        exit 1
+      fi
+      UPDATING_MCPS=$(echo "${MCP}" | jq -r \
+        '[.items[] | select([.status.conditions[]? | select(.type == "Updated" and .status == "False")] | length > 0) | .metadata.name] | join(",")')
+      if [ -z "$UPDATING_MCPS" ]; then
+        for node in $(oc get nodes -o jsonpath='{range .items[?(@.spec.unschedulable)]}{.metadata.name}{"\n"}{end}'); do
+          oc adm uncordon "${node}" 2>/dev/null || true
+        done
+      fi
+
+      oc adm transition topology --infrastructure=HighlyAvailable 2>&1
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: preflight_check
+  changed_when: false
+  retries: 120
+  delay: 10
+  until: >-
+    preflight_check is defined and
+    preflight_check.rc is defined and
+    preflight_check.rc == 0
+  when:
+    - topology_cmd_check.rc == 0
+    - not infra_to_ha_already_ha
+    - not (infra_to_ha_allow_transition_with_warnings | bool)
+
+- name: "[topology] Display readiness validation"
+  ansible.builtin.debug:
+    msg: "Cluster ready for infrastructure topology transition - all preflight checks passed"
+  when:
+    - topology_cmd_check.rc == 0
+    - not infra_to_ha_already_ha
+    - not (infra_to_ha_allow_transition_with_warnings | bool)
+
+- name: "[topology] Stop before transition confirmation (stop_before_transition_confirm=true)"
+  block:
+    - name: "[topology] Display staged state message"
+      ansible.builtin.debug:
+        msg: |
+          Transition staged and ready to confirm
+
+          The cluster is ready for the infrastructure topology transition. To complete manually:
+            $ oc adm transition topology --infrastructure=HighlyAvailable --confirm{{ ' --allow-transition-with-warnings' if (infra_to_ha_allow_transition_with_warnings | bool) else '' }}
+
+          To resume and complete the transition automatically, rerun WITHOUT the stop flag:
+            $ make infra-to-ha
+
+          Playbook stopped as requested (stop_before_transition_confirm=true)
+
+          Tip: Pass Ansible extra vars to make using EXTRA_ARGS:
+            make infra-to-ha EXTRA_ARGS="-e stop_before_transition_confirm=true"
+
+    - name: "[topology] End playbook at staged state"
+      ansible.builtin.meta: end_play
+  when:
+    - topology_cmd_check.rc == 0
+    - not infra_to_ha_already_ha
+    - stop_before_transition_confirm | default(false) | bool
+
+- name: "[topology] Initiate infrastructure topology transition (patches Infrastructure.spec)"
+  # The readiness wait above can pass a poll right before the cluster
+  # regresses (e.g. a node flaps NotReady or an operator goes Progressing),
+  # making --confirm fail validation seconds later. Validation failures
+  # mean 'not stable yet', not 'impossible' - retry them instead of failing
+  # the run. Any other failure aborts immediately so the detailed error
+  # message below is what users see. Retrying is safe: a validation failure
+  # gates before the command executes anything.
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      ATTEMPTS=60
+      for attempt in $(seq 1 "${ATTEMPTS}"); do
+        OUT=$(oc adm transition topology --infrastructure=HighlyAvailable --confirm \
+          {{ '--allow-transition-with-warnings' if (infra_to_ha_allow_transition_with_warnings | bool) else '' }} 2>&1)
+        RC=$?
+        if [ "${RC}" -eq 0 ]; then
+          echo "Transition confirmed (attempt ${attempt}/${ATTEMPTS})"
+          echo "${OUT}"
+          exit 0
+        fi
+        if ! echo "${OUT}" | grep -qE 'preflight checks failed|validation failed|transition is not available'; then
+          # Not a cluster-stability issue - do not retry
+          echo "${OUT}"
+          exit "${RC}"
+        fi
+        echo "Cluster not stable enough to confirm the transition yet (attempt ${attempt}/${ATTEMPTS}):"
+        echo "${OUT}"
+        sleep 10
+      done
+      echo "Transition validation still failing after ${ATTEMPTS} attempts (10 minutes)" >&2
+      exit 1
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: transition_result
+  changed_when: false
+  # Let the task complete so the detailed failure message in
+  # '[topology] Check if transition command succeeded' below is what users see
+  failed_when: false
+  when:
+    - topology_cmd_check.rc == 0
+    - not infra_to_ha_already_ha
+
+- name: "[topology] Verify Infrastructure.spec.infrastructureTopology updated (fast-fail check)"
+  ansible.builtin.shell:
+    cmd: oc get infrastructure cluster -o jsonpath='{.spec.infrastructureTopology}' 2>&1
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: topo_spec_verify
+  changed_when: false
+  retries: 5
+  delay: 2
+  until: >-
+    topo_spec_verify is defined and
+    topo_spec_verify.rc is defined and
+    topo_spec_verify.rc == 0 and
+    topo_spec_verify.stdout == "HighlyAvailable"
+  failed_when: false
+  when:
+    - topology_cmd_check.rc == 0
+    - not infra_to_ha_already_ha
+
+- name: "[topology] Check if transition command succeeded"
+  ansible.builtin.fail:
+    msg: |
+      Infrastructure topology transition command failed.
+
+      Command output:
+      {{ transition_result.stdout if transition_result.stdout else 'No output' }}
+
+      Command errors:
+      {{ transition_result.stderr if transition_result.stderr else 'No errors' }}
+  when:
+    - topology_cmd_check.rc == 0
+    - not infra_to_ha_already_ha
+    - transition_result.rc != 0
+
+- name: "[topology] Check if Infrastructure.spec was updated"
+  ansible.builtin.fail:
+    msg: |
+      Transition command succeeded but Infrastructure.spec.infrastructureTopology was not
+      updated after 10 seconds.
+
+      Infrastructure.spec.infrastructureTopology: {{ topo_spec_verify.stdout if topo_spec_verify.stdout else 'unable to read' }}
+      Expected: HighlyAvailable
+
+      This may indicate a timing issue. Check the transition command output above.
+  when:
+    - topology_cmd_check.rc == 0
+    - not infra_to_ha_already_ha
+    - topo_spec_verify.stdout != "HighlyAvailable"
+
+- name: "[topology] Display transition initiated"
+  ansible.builtin.debug:
+    msg: >-
+      Infrastructure topology transition initiated - Infrastructure.spec.infrastructureTopology
+      updated to HighlyAvailable. CCO will reconcile status and operators will reconfigure.
+  when:
+    - topology_cmd_check.rc == 0
+    - not infra_to_ha_already_ha
+
+- name: "[topology] Wait for Infrastructure.status update (up to 5 minutes)"
+  ansible.builtin.shell:
+    cmd: oc get infrastructure cluster -o jsonpath='{.status.controlPlaneTopology},{.status.infrastructureTopology}' 2>&1
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: status_check
+  changed_when: false
+  failed_when: false
+  retries: 30
+  delay: 10
+  until: >-
+    status_check is defined and
+    status_check.rc is defined and
+    status_check.rc == 0 and
+    status_check.stdout is defined and
+    status_check.stdout == "HighlyAvailable,HighlyAvailable"
+  when:
+    - topology_cmd_check.rc == 0
+    - not infra_to_ha_already_ha
+
+- name: "[topology] Check if CCO reconciliation succeeded"
+  ansible.builtin.set_fact:
+    infra_to_ha_cco_reconciled: "{{ status_check.rc == 0 and status_check.stdout == 'HighlyAvailable,HighlyAvailable' }}"
+  when:
+    - topology_cmd_check.rc == 0
+    - not infra_to_ha_already_ha
+
+- name: "[topology] Fail if CCO did not reconcile status (manual patch not allowed)"
+  ansible.builtin.fail:
+    msg: |
+      The cluster-config-operator did NOT automatically update
+      Infrastructure.status within 5 minutes after spec was patched.
+
+      This indicates one of the following:
+        1. The CCO topology controller does not support infrastructure-only
+           transitions in this payload (needs openshift/cluster-config-operator#525)
+        2. The CCO controller encountered an error during reconciliation
+        3. The controller loop timing is longer than expected (it may still
+           complete if you rerun later)
+
+      Refusing to hand-patch status by default: a manual status patch would
+      report a successful transition exactly when the controller did not do
+      the work, and could race a CCO that is merely slow.
+
+      ACTION REQUIRED:
+        - Verify CCO logs: oc logs -n openshift-cluster-config-operator ...
+        - Check if mutable-topology-controller is present in CCO image
+        - To fall back to a manual status patch anyway (test aid only), rerun with:
+            make infra-to-ha EXTRA_ARGS="-e infra_to_ha_allow_manual_status_patch=true"
+  when:
+    - topology_cmd_check.rc == 0
+    - not infra_to_ha_already_ha
+    - not infra_to_ha_cco_reconciled
+    - not (infra_to_ha_allow_manual_status_patch | default(false) | bool)
+
+- name: "[topology] WARNING: CCO did not reconcile status - applying manual patch fallback"
+  ansible.builtin.debug:
+    msg: |
+      WARNING: The cluster-config-operator did NOT automatically update
+      Infrastructure.status within 5 minutes after spec was patched.
+
+      This indicates one of the following:
+        1. The CCO topology controller does not support infrastructure-only
+           transitions in this payload (needs openshift/cluster-config-operator#525)
+        2. The CCO controller encountered an error during reconciliation
+        3. The controller loop timing is longer than expected
+
+      Applying MANUAL PATCH as fallback (opt-in via
+      infra_to_ha_allow_manual_status_patch=true) to complete the topology
+      transition. NOTE: the transition controller did NOT do this work.
+
+      ACTION REQUIRED:
+        - Verify CCO logs: oc logs -n openshift-cluster-config-operator ...
+        - Check if mutable-topology-controller is present in CCO image
+  when:
+    - topology_cmd_check.rc == 0
+    - not infra_to_ha_already_ha
+    - not infra_to_ha_cco_reconciled
+    - infra_to_ha_allow_manual_status_patch | default(false) | bool
+
+- name: "[topology] Apply manual Infrastructure.status patch (fallback)"
+  ansible.builtin.shell:
+    cmd: >
+      oc patch infrastructure cluster --type merge --subresource status
+      -p '{"status":{"infrastructureTopology":"HighlyAvailable"}}'
+  environment: "{{ infra_to_ha_oc_env }}"
+  when:
+    - topology_cmd_check.rc == 0
+    - not infra_to_ha_already_ha
+    - not infra_to_ha_cco_reconciled
+    - infra_to_ha_allow_manual_status_patch | default(false) | bool
+
+- name: "[topology] Verify manual patch applied successfully"
+  ansible.builtin.shell:
+    cmd: oc get infrastructure cluster -o jsonpath='{.status.infrastructureTopology}'
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: manual_patch_verify
+  changed_when: false
+  failed_when: manual_patch_verify.stdout != "HighlyAvailable"
+  when:
+    - topology_cmd_check.rc == 0
+    - not infra_to_ha_already_ha
+    - not infra_to_ha_cco_reconciled
+    - infra_to_ha_allow_manual_status_patch | default(false) | bool
+
+- name: "[topology] Wait for transition to complete per 'oc adm transition status' (up to 20 minutes)"
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+
+      # The MCO may cordon nodes during the transition, leaving PDB-protected
+      # monitoring pods unevictable on unschedulable nodes. Those pods block
+      # the node drain, which blocks the MCO rollout and keeps the transition
+      # from completing. Force-delete them on every poll (bypassing their
+      # PDBs; DaemonSet pods are skipped since drain ignores them anyway) so
+      # the transition can make progress.
+      for node in $(oc get nodes -o jsonpath='{range .items[?(@.spec.unschedulable)]}{.metadata.name}{"\n"}{end}'); do
+        {% for ns in infra_to_ha_pending_pod_namespaces %}
+        oc get pods -n {{ ns }} --field-selector "spec.nodeName=${node}" -o json | jq -r '
+          .items[]
+          | select(([.metadata.ownerReferences[]? | select(.kind == "DaemonSet")] | length) == 0)
+          | .metadata.name' | xargs -r oc delete -n {{ ns }} --grace-period=0 --force 2>/dev/null || true
+        {% endfor %}
+      done
+
+      oc adm transition status 2>&1
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: transition_status
+  changed_when: false
+  failed_when: false
+  retries: 120
+  delay: 10
+  until: >-
+    transition_status is defined and
+    transition_status.rc is defined and
+    transition_status.rc == 0 and
+    transition_status.stdout is defined and
+    ('No transition in progress' in transition_status.stdout or
+     'TopologyTransitionComplete' in transition_status.stdout)
+  when: not infra_to_ha_already_ha
+
+- name: "[topology] Display transition status"
+  ansible.builtin.debug:
+    msg: "{{ transition_status.stdout }}"
+  when:
+    - not infra_to_ha_already_ha
+    - transition_status is defined
+
+- name: "[topology] Fail if transition did not complete"
+  ansible.builtin.fail:
+    msg: |
+      Topology transition did not complete after 20 minutes. Status output:
+      {{ transition_status.stdout if transition_status is defined and transition_status.stdout else 'No output' }}
+  when:
+    - not infra_to_ha_already_ha
+    - transition_status is defined
+    - (transition_status.rc != 0 or
+       ('No transition in progress' not in transition_status.stdout and
+        'TopologyTransitionComplete' not in transition_status.stdout))
+
+- name: "[topology] Topology transition complete"
+  ansible.builtin.debug:
+    msg: |-
+      Infrastructure topology transition complete:
+      {% if infra_to_ha_already_ha %}
+      - infrastructureTopology was already HighlyAvailable (skipped)
+      {% elif infra_to_ha_cco_reconciled %}
+      - spec and status updated to HighlyAvailable by cluster-config-operator
+      {% else %}
+      - spec and status updated to HighlyAvailable via manual patch (CCO reconciliation timed out - see warning above)
+      {% endif %}
+      - 'oc adm transition status': {{ (transition_status.stdout_lines | join(' | ')) if (transition_status is defined and transition_status.stdout_lines) else 'No transition in progress' }}
+      - IngressController will be reconfigured for HA in the next phase

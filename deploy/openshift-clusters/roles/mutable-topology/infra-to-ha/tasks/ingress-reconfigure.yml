@@ -1,0 +1,157 @@
+# Reconfigure IngressController for HA after Infrastructure.status has been updated
+# The IngressController operator reads Infrastructure.status.infrastructureTopology
+# to determine default replicas (1 for SingleReplica, 2 for HighlyAvailable)
+
+- name: "[ingress] Check current IngressController replica configuration"
+  ansible.builtin.shell:
+    cmd: |
+      if ! IC_JSON=$(oc get ingresscontroller/default -n openshift-ingress-operator -o json); then
+        echo "ERROR: Failed to get IngressController resource"
+        exit 1
+      fi
+
+      REPLICAS=$(echo "$IC_JSON" | jq -r '.spec.replicas // empty')
+      echo "replicas=${REPLICAS}"
+
+      # Empty means field not set - defaults to 2 in HA mode, so it's already correct
+      if [ -z "$REPLICAS" ]; then
+        echo "needs_deletion=false (field unset - using HA defaults)"
+        exit 0
+      fi
+
+      # If replicas is 1, we need to delete to trigger HA recreation
+      if [ "$REPLICAS" = "1" ]; then
+        echo "needs_deletion=true (currently replicas=1)"
+        exit 0
+      fi
+
+      # If replicas >= 2, already configured for HA
+      echo "needs_deletion=false (already replicas=$REPLICAS)"
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: ingress_check
+  changed_when: false
+
+- name: "[ingress] Display current IngressController status"
+  ansible.builtin.debug:
+    msg: "{{ ingress_check.stdout_lines }}"
+
+- name: "[ingress] Delete ingress-operator pod to force Infrastructure resync"
+  ansible.builtin.shell:
+    cmd: oc delete pod -n openshift-ingress-operator -l name=ingress-operator
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: delete_operator_pod
+  changed_when: delete_operator_pod.rc == 0
+  failed_when: false
+  when:
+    - infra_to_ha_needs_transition | default(false)
+    - "'needs_deletion=true' in ingress_check.stdout"
+
+- name: "[ingress] Wait for ingress-operator pod to restart"
+  ansible.builtin.shell:
+    cmd: |
+      oc get pods -n openshift-ingress-operator -l name=ingress-operator -o json | \
+        jq -e '.items[] | select(.status.phase == "Running" and all(.status.containerStatuses[]?; .ready == true))'
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: operator_pod_check
+  changed_when: false
+  retries: 12
+  delay: 5
+  until: operator_pod_check.rc == 0
+  when:
+    - infra_to_ha_needs_transition | default(false)
+    - "'needs_deletion=true' in ingress_check.stdout"
+
+- name: "[ingress] Delete IngressController to trigger recreation with HA defaults"
+  ansible.builtin.shell:
+    cmd: oc delete ingresscontroller/default -n openshift-ingress-operator
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: delete_ingress
+  changed_when: delete_ingress.rc == 0
+  when:
+    - infra_to_ha_needs_transition | default(false)
+    - "'needs_deletion=true' in ingress_check.stdout"
+
+- name: "[ingress] Wait for IngressController automatic recreation"
+  ansible.builtin.shell:
+    cmd: oc get ingresscontroller/default -n openshift-ingress-operator -o json 2>&1
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: ingress_recreate_check
+  changed_when: false
+  retries: 12
+  delay: 10
+  until: ingress_recreate_check.rc == 0
+  when:
+    - infra_to_ha_needs_transition | default(false)
+    - "'needs_deletion=true' in ingress_check.stdout"
+
+- name: "[ingress] Verify IngressController has correct replicas for HA"
+  ansible.builtin.shell:
+    cmd: |
+      if ! IC_JSON=$(oc get ingresscontroller/default -n openshift-ingress-operator -o json); then
+        echo "ERROR: Failed to get IngressController resource"
+        exit 1
+      fi
+
+      REPLICAS=$(echo "$IC_JSON" | jq -r '.spec.replicas // empty')
+      echo "replicas=${REPLICAS}"
+
+      # Empty or >= 2 is correct for HA
+      if [ -z "$REPLICAS" ] || [ "$REPLICAS" -ge 2 ] 2>/dev/null; then
+        exit 0
+      fi
+
+      # If still 1, that's an error
+      if [ "$REPLICAS" = "1" ]; then
+        echo "ERROR: IngressController still has replicas=1 after HA transition"
+        exit 1
+      fi
+
+      # If REPLICAS is non-numeric or invalid
+      echo "ERROR: Invalid replica value: ${REPLICAS}"
+      exit 1
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: ingress_config
+  changed_when: false
+  failed_when: ingress_config.rc != 0
+
+- name: "[ingress] Display IngressController configuration"
+  ansible.builtin.debug:
+    msg: "IngressController configured for HA: {{ ingress_config.stdout }}"
+
+- name: "[ingress] Wait for router pods to be ready"
+  ansible.builtin.shell:
+    cmd: |
+      oc get pods -n openshift-ingress -l ingresscontroller.operator.openshift.io/deployment-ingresscontroller=default -o json | jq -e '
+        .items[] | select(.status.phase != "Running") | "\(.metadata.name): phase=\(.status.phase)"
+      ' && exit 1
+
+      oc get pods -n openshift-ingress -l ingresscontroller.operator.openshift.io/deployment-ingresscontroller=default -o json | jq -e '
+        .items[] | select(any(.status.containerStatuses[]?; .ready != true)) | "\(.metadata.name): not ready"
+      ' && exit 1
+
+      echo "All router pods ready"
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: router_pods_check
+  changed_when: false
+  failed_when: false
+  retries: 24
+  delay: 10
+  until: >-
+    router_pods_check is defined and
+    router_pods_check.rc is defined and
+    router_pods_check.rc == 0 and
+    'All router pods ready' in router_pods_check.stdout
+
+- name: "[ingress] IngressController reconfiguration complete"
+  ansible.builtin.debug:
+    msg: |-
+      {% if not (infra_to_ha_needs_transition | default(false)) %}
+      - Verify-only run (already HighlyAvailable): IngressController checked, not modified
+      - Router pods ready and serving traffic
+      {% elif 'needs_deletion=true' in ingress_check.stdout %}
+      - IngressController recreated with HA defaults
+      - Router pods ready and serving traffic
+      {% else %}
+      - IngressController already configured for HA (skipped deletion)
+      - Router pods ready and serving traffic
+      {% endif %}

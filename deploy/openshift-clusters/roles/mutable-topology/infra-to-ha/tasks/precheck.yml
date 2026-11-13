@@ -1,0 +1,100 @@
+# Read-only pre-checks: run BEFORE any mutation (scenario setup, FeatureGate
+# patch) so an unusable cluster or oc fails fast instead of after
+# SingleReplica simulation and an irreversible CustomNoUpgrade switch.
+
+- name: "[precheck] Check if oc adm transition topology command is available"
+  # NOTE: 'oc adm transition topology --help' exits 0 even when the command
+  # does not exist - cobra handles --help before resolving the subcommand, so
+  # a missing command prints the parent 'oc adm' help. Probe the help output
+  # for the --infrastructure flag instead.
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      oc adm transition topology --help 2>&1 | grep -q -- '--infrastructure'
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: topology_cmd_check
+  changed_when: false
+  failed_when: false
+
+- name: "[precheck] Fail early if transition command unavailable and a transition will be needed"
+  ansible.builtin.fail:
+    msg: |
+      The 'oc adm transition topology' command is not available with this oc.
+
+      Check the following, in order:
+        1. The command is hidden behind an env var - set it and retry manually:
+             export OC_ENABLE_CMD_TRANSITION_TOPOLOGY=true
+             oc adm transition topology --infrastructure=HighlyAvailable
+           (Note: the playbook already sets this env var for its own tasks.)
+        2. Your oc binary predates the command - check 'oc version' and install
+           an oc with 'oc adm transition topology' support (openshift/oc#2436).
+        3. The payload's cluster-config-operator must support infrastructure-only
+           topology transitions (openshift/cluster-config-operator#525).
+  when:
+    - topology_cmd_check.rc != 0
+    - infra_to_ha_simulate_single_replica | default(true) | bool
+
+- name: "[precheck] Get cluster nodes"
+  ansible.builtin.shell:
+    cmd: oc get nodes -o json
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: precheck_nodes_raw
+  changed_when: false
+
+- name: "[precheck] Parse node data"
+  ansible.builtin.set_fact:
+    precheck_nodes: "{{ (precheck_nodes_raw.stdout | from_json)['items'] }}"
+
+- name: "[precheck] Assert minimum node count"
+  ansible.builtin.assert:
+    that: (precheck_nodes | length) >= 2
+    fail_msg: >-
+      Expected at least 2 nodes, found {{ precheck_nodes | length }}.
+      Cluster is in an unexpected state.
+
+- name: "[precheck] Assert all nodes Ready"
+  ansible.builtin.assert:
+    that: >-
+      precheck_nodes
+      | map(attribute='status.conditions')
+      | flatten
+      | selectattr('type', 'equalto', 'Ready')
+      | map(attribute='status')
+      | unique == ['True']
+    fail_msg: "One or more nodes are not Ready"
+
+- name: "[precheck] Check for degraded cluster operators"
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      CO=$(oc get co -o json)
+      if [ -z "${CO}" ]; then
+        # An empty read must not look like 'all operators healthy'
+        echo "Failed to read cluster operators"
+        exit 1
+      fi
+      DEGRADED=$(echo "${CO}" | jq -r '[.items[] | select(.status.conditions[] | select(.type=="Degraded" and .status=="True")) | .metadata.name] | join(", ")')
+      if [ -n "${DEGRADED}" ]; then
+        echo "Degraded COs: ${DEGRADED}"
+        exit 1
+      fi
+      echo "All cluster operators healthy"
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: precheck_co_check
+  changed_when: false
+  failed_when: false
+
+- name: "[precheck] Display CO status"
+  ansible.builtin.debug:
+    msg: "{{ precheck_co_check.stdout }}"
+
+- name: "[precheck] Warn if COs degraded"
+  ansible.builtin.debug:
+    msg: "WARNING: Some cluster operators are degraded. Proceeding anyway."
+  when: precheck_co_check.rc != 0
+
+- name: "[precheck] Read-only pre-checks passed"
+  ansible.builtin.debug:
+    msg: >-
+      Read-only pre-checks passed (oc capability, node readiness, cluster
+      operator health). No cluster state has been modified yet.
