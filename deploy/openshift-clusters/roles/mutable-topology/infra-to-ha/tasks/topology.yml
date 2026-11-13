@@ -117,10 +117,37 @@
     - stop_before_transition_confirm | default(false) | bool
 
 - name: "[topology] Initiate infrastructure topology transition (patches Infrastructure.spec)"
+  # The readiness wait above can pass a poll right before the cluster
+  # regresses (e.g. a node flaps NotReady or an operator goes Progressing),
+  # making --confirm fail validation seconds later. Validation failures
+  # mean 'not stable yet', not 'impossible' - retry them instead of failing
+  # the run. Any other failure aborts immediately so the detailed error
+  # message below is what users see. Retrying is safe: a validation failure
+  # gates before the command executes anything.
   ansible.builtin.shell:
     cmd: |
-      oc adm transition topology --infrastructure=HighlyAvailable --confirm \
-      {{ '--allow-transition-with-warnings' if (infra_to_ha_allow_transition_with_warnings | bool) else '' }}
+      set -o pipefail
+      ATTEMPTS=60
+      for attempt in $(seq 1 "${ATTEMPTS}"); do
+        OUT=$(oc adm transition topology --infrastructure=HighlyAvailable --confirm \
+          {{ '--allow-transition-with-warnings' if (infra_to_ha_allow_transition_with_warnings | bool) else '' }} 2>&1)
+        RC=$?
+        if [ "${RC}" -eq 0 ]; then
+          echo "Transition confirmed (attempt ${attempt}/${ATTEMPTS})"
+          echo "${OUT}"
+          exit 0
+        fi
+        if ! echo "${OUT}" | grep -qE 'preflight checks failed|validation failed|transition is not available'; then
+          # Not a cluster-stability issue - do not retry
+          echo "${OUT}"
+          exit "${RC}"
+        fi
+        echo "Cluster not stable enough to confirm the transition yet (attempt ${attempt}/${ATTEMPTS}):"
+        echo "${OUT}"
+        sleep 10
+      done
+      echo "Transition validation still failing after ${ATTEMPTS} attempts (10 minutes)" >&2
+      exit 1
   environment: "{{ infra_to_ha_oc_env }}"
   register: transition_result
   changed_when: false
