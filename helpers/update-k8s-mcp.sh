@@ -39,12 +39,15 @@ fi
 # A user-scope entry resolves this path from Claude's working directory, not this shell's.
 CONFIG=$(realpath "$CONFIG")
 
-# Fail fast: grep would report an unreadable file as "no kubeconfig key".
-[[ -f $CONFIG && -r $CONFIG ]] || { echo "cannot read $CONFIG" >&2; exit 1; }
-
 # A nonempty 'kubeconfig' key in the TOML overrides the KUBECONFIG env var set below.
+grep_status=0
 KUBECONFIG_SETTING=$(grep -E '^[[:space:]]*kubeconfig[[:space:]]*=' "$CONFIG" | tail -n1 |
-  sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]*$//; s/^"(.*)"$/\1/; s/^'"'"'(.*)'"'"'$/\1/' || true)
+  sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]*$//; s/^"(.*)"$/\1/; s/^'"'"'(.*)'"'"'$/\1/') || grep_status=$?
+# grep exits 1 when no 'kubeconfig' key exists; >1 means the config could not be read.
+if (( grep_status > 1 )); then
+  echo "cannot read $CONFIG" >&2
+  exit 1
+fi
 if [[ -n $KUBECONFIG_SETTING ]]; then
   echo "$CONFIG sets 'kubeconfig', which overrides KUBECONFIG=$KUBECONFIG_PATH" >&2
   exit 1
