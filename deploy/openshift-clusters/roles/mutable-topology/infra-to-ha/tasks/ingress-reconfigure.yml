@@ -119,17 +119,32 @@
     msg: "IngressController configured for HA: {{ ingress_config.stdout }}"
 
 - name: "[ingress] Wait for router pods to be ready"
+  # Requires a successful API read, a non-empty pod list and the expected
+  # number of ready replicas. An empty items list or a failed read must not
+  # look like success - this runs right after deleting/recreating the
+  # IngressController, when the pod list may temporarily be empty.
   ansible.builtin.shell:
     cmd: |
-      oc get pods -n openshift-ingress -l ingresscontroller.operator.openshift.io/deployment-ingresscontroller=default -o json | jq -e '
-        .items[] | select(.status.phase != "Running") | "\(.metadata.name): phase=\(.status.phase)"
-      ' && exit 1
-
-      oc get pods -n openshift-ingress -l ingresscontroller.operator.openshift.io/deployment-ingresscontroller=default -o json | jq -e '
-        .items[] | select(any(.status.containerStatuses[]?; .ready != true)) | "\(.metadata.name): not ready"
-      ' && exit 1
-
-      echo "All router pods ready"
+      set -o pipefail
+      PODS=$(oc get pods -n openshift-ingress -l ingresscontroller.operator.openshift.io/deployment-ingresscontroller=default -o json)
+      if [ -z "${PODS}" ]; then
+        echo "Failed to read router pods"
+        exit 1
+      fi
+      TOTAL=$(echo "${PODS}" | jq -r '.items | length')
+      if [ "${TOTAL}" -eq 0 ]; then
+        echo "No router pods found yet"
+        exit 1
+      fi
+      # Expected replicas: IngressController spec, defaulting to the HA default (2)
+      EXPECTED=$(oc get ingresscontroller/default -n openshift-ingress-operator -o json | jq -r '.spec.replicas // 2')
+      READY=$(echo "${PODS}" | jq -r '[.items[] | select(.status.phase == "Running") | select(all(.status.containerStatuses[]?; .ready == true))] | length')
+      if [ "${READY}" -lt "${EXPECTED}" ]; then
+        echo "Router pods ready ${READY}/${EXPECTED}:"
+        echo "${PODS}" | jq -r '.items[] | "\(.metadata.name): phase=\(.status.phase), ready=\([.status.containerStatuses[]?.ready] | join(\",\"))"'
+        exit 1
+      fi
+      echo "All router pods ready (${READY}/${EXPECTED})"
   environment: "{{ infra_to_ha_oc_env }}"
   register: router_pods_check
   changed_when: false

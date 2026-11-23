@@ -385,5 +385,5 @@
       {% else %}
       - spec and status updated to HighlyAvailable via manual patch (CCO reconciliation timed out - see warning above)
       {% endif %}
-      - 'oc adm transition status': {{ (transition_status.stdout_lines | join(' | ')) if (transition_status is defined and transition_status.stdout_lines) else 'No transition in progress' }}
+      - 'oc adm transition status': {{ transition_status.stdout_lines | default([]) | join(' | ') or 'No transition in progress' }}
       - IngressController will be reconfigured for HA in the next phase
