@@ -3,9 +3,12 @@
     _bool_vars:
       - stop_before_transition_confirm
       - sno_allow_transition_with_warnings
+  # No trim: ansible-core 2.18's bool filter lowercases but does not strip
+  # whitespace, so a padded value like " true " would pass validation here
+  # and still evaluate False at the stop task. Reject it loudly instead.
   assert:
     that: >-
-      lookup('vars', item, default='false') | string | lower | trim
+      lookup('vars', item, default='false') | string | lower
         in ['true', 'false']
     fail_msg: >-
       {{ item }} must be exactly 'true' or 'false' (got
