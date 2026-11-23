@@ -1,3 +1,20 @@
+- name: "[preflight] Validate boolean extra vars"
+  vars:
+    _bool_vars:
+      - stop_before_transition_confirm
+      - sno_allow_transition_with_warnings
+  assert:
+    that: >-
+      lookup('vars', item, default='false') | string | lower | trim
+        in ['true', 'false']
+    fail_msg: >-
+      {{ item }} must be exactly 'true' or 'false' (got
+      '{{ lookup('vars', item, default='false') }}'). A mangled value —
+      commonly from an unclosed quote gluing a following command onto the
+      EXTRA_ARGS value (e.g. stop_before_transition_confirm=trueoc) — silently
+      evaluates as false and the playbook will NOT stop where requested.
+  loop: "{{ _bool_vars }}"
+
 - name: "[preflight] Query Infrastructure CR"
   shell: |
     oc get infrastructure cluster -o json
