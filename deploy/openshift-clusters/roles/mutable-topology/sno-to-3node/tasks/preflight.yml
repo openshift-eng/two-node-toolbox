@@ -19,16 +19,18 @@
   loop: "{{ _bool_vars }}"
 
 - name: "[preflight] Validate numeric extra vars"
-  # Jinja's int filter converts non-numeric strings (e.g. '90m') to 0, which
-  # would make the verify wait use 0 retries and fail after a single poll.
+  # Reject anything that is not a plain positive integer: Jinja's int filter
+  # truncates ('1.9' -> 1) or zeroes ('90m' -> 0) non-integer values, which
+  # would silently change the verify wait (fractional minutes shrink it;
+  # '90m' would make it zero retries).
   assert:
-    that: (sno_transition_verify_timeout_minutes | default(90)) | int > 0
+    that: sno_transition_verify_timeout_minutes | default(90) | string is match('^[1-9][0-9]*$')
     fail_msg: >-
       sno_transition_verify_timeout_minutes must be a positive integer
       (minutes), got
-      '{{ sno_transition_verify_timeout_minutes | default(90) }}'. A value
-      like '90m' converts to 0 via the int filter and the verify wait
-      silently runs zero retries.
+      '{{ sno_transition_verify_timeout_minutes | default(90) }}'.
+      Non-integer values are rejected because the int filter truncates
+      them ('1.9' -> 1, '90m' -> 0), silently changing the verify wait.
 
 - name: "[preflight] Query Infrastructure CR"
   shell: |
