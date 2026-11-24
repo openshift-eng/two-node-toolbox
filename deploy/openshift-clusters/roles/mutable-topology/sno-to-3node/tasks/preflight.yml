@@ -18,6 +18,18 @@
       evaluates as false and the playbook will NOT stop where requested.
   loop: "{{ _bool_vars }}"
 
+- name: "[preflight] Validate numeric extra vars"
+  # Jinja's int filter converts non-numeric strings (e.g. '90m') to 0, which
+  # would make the verify wait use 0 retries and fail after a single poll.
+  assert:
+    that: (sno_transition_verify_timeout_minutes | default(90)) | int > 0
+    fail_msg: >-
+      sno_transition_verify_timeout_minutes must be a positive integer
+      (minutes), got
+      '{{ sno_transition_verify_timeout_minutes | default(90) }}'. A value
+      like '90m' converts to 0 via the int filter and the verify wait
+      silently runs zero retries.
+
 - name: "[preflight] Query Infrastructure CR"
   shell: |
     oc get infrastructure cluster -o json
