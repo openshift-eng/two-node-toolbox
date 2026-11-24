@@ -1,18 +1,22 @@
-- name: "[verify] Wait for topology transition to complete (up to 20 minutes)"
+- name: "[verify] Wait for topology transition to complete"
   shell: |
     oc adm transition status 2>&1
   environment: "{{ sno_oc_env }}"
   register: transition_status
   changed_when: false
   failed_when: false
-  retries: 120
+  # Default 90 minutes (540 retries x 10s), aligned with the origin
+  # topology-transitions suite's completion allowance. A real SNO->HA
+  # transition includes a controller soak period plus a full MCO rollout
+  # across 3 nodes; 20 minutes is not enough.
+  retries: "{{ sno_transition_verify_timeout_minutes | default(90) | int * 6 }}"
   delay: 10
   until: >-
     transition_status is defined and
     transition_status.rc is defined and
     transition_status.rc == 0 and
     transition_status.stdout is defined and
-    'No transition in progress' in transition_status.stdout
+    'Reason: TopologyTransitionComplete' in transition_status.stdout
 
 - name: "[verify] Display transition status"
   debug:
@@ -21,10 +25,13 @@
 
 - name: "[verify] Check transition completion"
   fail:
-    msg: "Topology transition did not complete after 20 minutes. See status output above."
+    msg: >-
+      Topology transition did not complete after
+      {{ sno_transition_verify_timeout_minutes | default(90) }} minutes.
+      See status output above.
   when:
     - transition_status is defined
-    - (transition_status.rc != 0 or 'No transition in progress' not in transition_status.stdout)
+    - (transition_status.rc != 0 or 'Reason: TopologyTransitionComplete' not in transition_status.stdout)
 
 - name: "[verify] Get node count and status"
   shell: |

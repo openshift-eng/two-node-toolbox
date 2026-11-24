@@ -1,3 +1,37 @@
+- name: "[preflight] Validate boolean extra vars"
+  vars:
+    _bool_vars:
+      - stop_before_transition_confirm
+      - sno_allow_transition_with_warnings
+  # No trim: ansible-core 2.18's bool filter lowercases but does not strip
+  # whitespace, so a padded value like " true " would pass validation here
+  # and still evaluate False at the stop task. Reject it loudly instead.
+  assert:
+    that: >-
+      lookup('vars', item, default='false') | string | lower
+        in ['true', 'false']
+    fail_msg: >-
+      {{ item }} must be exactly 'true' or 'false' (got
+      '{{ lookup('vars', item, default='false') }}'). A mangled value —
+      commonly from an unclosed quote gluing a following command onto the
+      EXTRA_ARGS value (e.g. stop_before_transition_confirm=trueoc) — silently
+      evaluates as false and the playbook will NOT stop where requested.
+  loop: "{{ _bool_vars }}"
+
+- name: "[preflight] Validate numeric extra vars"
+  # Reject anything that is not a plain positive integer: Jinja's int filter
+  # truncates ('1.9' -> 1) or zeroes ('90m' -> 0) non-integer values, which
+  # would silently change the verify wait (fractional minutes shrink it;
+  # '90m' would make it zero retries).
+  assert:
+    that: sno_transition_verify_timeout_minutes | default(90) | string is match('^[1-9][0-9]*$')
+    fail_msg: >-
+      sno_transition_verify_timeout_minutes must be a positive integer
+      (minutes), got
+      '{{ sno_transition_verify_timeout_minutes | default(90) }}'.
+      Non-integer values are rejected because the int filter truncates
+      them ('1.9' -> 1, '90m' -> 0), silently changing the verify wait.
+
 - name: "[preflight] Query Infrastructure CR"
   shell: |
     oc get infrastructure cluster -o json
