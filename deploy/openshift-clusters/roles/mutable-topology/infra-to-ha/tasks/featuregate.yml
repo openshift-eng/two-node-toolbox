@@ -142,8 +142,24 @@
     - featuregate_rollout_started is failed
 
 - name: "[featuregate] Wait for FeatureGate-triggered MCO rollout to complete (up to 40 minutes)"
+  # The rollout this task waits for can deadlock: the MCO cordons a node and
+  # its drain blocks on PDB-protected monitoring pods. The dedicated cleanup
+  # phase runs only AFTER this wait, so without unblocking here the wait can
+  # never succeed. Mirror the readiness loop in topology.yml: force-delete
+  # the pods blocking the drain (bypassing PDBs; DaemonSet pods are skipped,
+  # as drain ignores them).
   ansible.builtin.shell:
     cmd: |
+      {% if infra_to_ha_cleanup_pending_monitoring_pods | default(true) | bool %}
+      for node in $(oc get nodes -o jsonpath='{range .items[?(@.spec.unschedulable)]}{.metadata.name}{"\n"}{end}'); do
+        {% for ns in infra_to_ha_pending_pod_namespaces %}
+        oc get pods -n {{ ns }} --field-selector "spec.nodeName=${node}" -o json | jq -r '
+          .items[]
+          | select(([.metadata.ownerReferences[]? | select(.kind == "DaemonSet")] | length) == 0)
+          | .metadata.name' | xargs -r oc delete pod -n {{ ns }} --grace-period=0 --force 2>/dev/null || true
+        {% endfor %}
+      done
+      {% endif %}
       set -o pipefail
       MCP=$(oc get mcp -o json)
       if [ -z "${MCP}" ]; then
