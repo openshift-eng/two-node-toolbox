@@ -59,11 +59,12 @@
         --argjson gates '{{ infra_to_ha_feature_gates | to_json }}' \
         --argjson fg '{{ infra_to_ha_featuregate | to_json }}' '
         [{op: "add", path: "/spec/featureSet", value: "CustomNoUpgrade"}]
-        + (if ($fg.spec.customNoUpgrade.enabled == null)
-           then [{op: "add", path: "/spec/customNoUpgrade/enabled", value: []}]
+        + (if ($fg.spec.customNoUpgrade == null)
+           then [{op: "add", path: "/spec/customNoUpgrade", value: {enabled: []}}]
            else [] end)
         + [$gates[]
-           | select((($fg.spec.customNoUpgrade.enabled // []) | index(.)) == null)
+           | . as $g
+           | select((($fg.spec.customNoUpgrade.enabled // []) | index($g)) == null)
            | {op: "add", path: "/spec/customNoUpgrade/enabled/-", value: .}]
       ')
       oc patch featuregate cluster --type json -p "$OPS"

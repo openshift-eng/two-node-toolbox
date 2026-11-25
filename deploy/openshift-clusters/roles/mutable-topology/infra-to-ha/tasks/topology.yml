@@ -48,20 +48,29 @@
         oc get pods -n {{ ns }} --field-selector "spec.nodeName=${node}" -o json | jq -r '
           .items[]
           | select(([.metadata.ownerReferences[]? | select(.kind == "DaemonSet")] | length) == 0)
-          | .metadata.name' | xargs -r oc delete -n {{ ns }} --grace-period=0 --force 2>/dev/null || true
+          | .metadata.name' | xargs -r oc delete pod -n {{ ns }} --grace-period=0 --force 2>/dev/null || true
         {% endfor %}
       done
 
       set -o pipefail
-      MCP=$(oc get mcp -o json)
-      if [ -z "${MCP}" ]; then
-        # An API blip must not look like 'no pools updating' (that would
-        # uncordon nodes the MCO cordoned mid-rollout) - fail so the poll retries
+      # Read failure, unparseable output, or an empty items list must all be
+      # distinguished from 'no pools updating' - otherwise a transient API
+      # error would uncordon nodes the MCO cordoned mid-rollout. Fail (fail-
+      # safe) so the poll retries instead of uncordoning on bad data.
+      if ! MCP=$(oc get mcp -o json 2>/dev/null); then
         echo "Failed to read MachineConfigPools"
         exit 1
       fi
-      UPDATING_MCPS=$(echo "${MCP}" | jq -r \
-        '[.items[] | select([.status.conditions[]? | select(.type == "Updated" and .status == "False")] | length > 0) | .metadata.name] | join(",")')
+      if [ -z "${MCP}" ] \
+         || ! echo "${MCP}" | jq -e '.items | length > 0' >/dev/null 2>&1; then
+        echo "MachineConfigPools unreadable, invalid, or empty"
+        exit 1
+      fi
+      if ! UPDATING_MCPS=$(echo "${MCP}" | jq -r \
+        '[.items[] | select([.status.conditions[]? | select(.type == "Updated" and .status == "False")] | length > 0) | .metadata.name] | join(",")'); then
+        echo "Failed to parse MachineConfigPools"
+        exit 1
+      fi
       if [ -z "$UPDATING_MCPS" ]; then
         for node in $(oc get nodes -o jsonpath='{range .items[?(@.spec.unschedulable)]}{.metadata.name}{"\n"}{end}'); do
           oc adm uncordon "${node}" 2>/dev/null || true
@@ -335,7 +344,7 @@
         oc get pods -n {{ ns }} --field-selector "spec.nodeName=${node}" -o json | jq -r '
           .items[]
           | select(([.metadata.ownerReferences[]? | select(.kind == "DaemonSet")] | length) == 0)
-          | .metadata.name' | xargs -r oc delete -n {{ ns }} --grace-period=0 --force 2>/dev/null || true
+          | .metadata.name' | xargs -r oc delete pod -n {{ ns }} --grace-period=0 --force 2>/dev/null || true
         {% endfor %}
       done
 

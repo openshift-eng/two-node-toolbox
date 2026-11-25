@@ -16,6 +16,20 @@
   changed_when: false
   failed_when: false
 
+- name: "[precheck] Read current infrastructureTopology"
+  # Read-only: determines whether a transition will be attempted later, so
+  # the oc capability check below fails before any cluster mutation - even
+  # when the SingleReplica simulation is disabled (real SR cluster).
+  ansible.builtin.shell:
+    cmd: oc get infrastructure cluster -o jsonpath='{.status.infrastructureTopology}'
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: precheck_infra_topology_raw
+  changed_when: false
+
+- name: "[precheck] Set infrastructureTopology fact"
+  ansible.builtin.set_fact:
+    precheck_infra_topology: "{{ precheck_infra_topology_raw.stdout | trim }}"
+
 - name: "[precheck] Fail early if transition command unavailable and a transition will be needed"
   ansible.builtin.fail:
     msg: |
@@ -32,7 +46,7 @@
            topology transitions (openshift/cluster-config-operator#525).
   when:
     - topology_cmd_check.rc != 0
-    - infra_to_ha_simulate_single_replica | default(true) | bool
+    - precheck_infra_topology == 'SingleReplica'
 
 - name: "[precheck] Get cluster nodes"
   ansible.builtin.shell:

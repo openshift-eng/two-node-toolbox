@@ -136,8 +136,17 @@
         echo "No router pods found yet"
         exit 1
       fi
-      # Expected replicas: IngressController spec, defaulting to the HA default (2)
-      EXPECTED=$(oc get ingresscontroller/default -n openshift-ingress-operator -o json | jq -r '.spec.replicas // 2')
+      # Expected replicas: IngressController spec, defaulting to the HA default (2).
+      # A failed read yields an empty/unnumeric EXPECTED, and the -lt test below
+      # would ERROR (rc 2), which an 'if' treats as false - falling through to
+      # the success message without comparing anything. Fail instead so the
+      # poll retries.
+      EXPECTED=$(oc get ingresscontroller/default -n openshift-ingress-operator -o json 2>/dev/null \
+        | jq -r '.spec.replicas // 2')
+      if ! [[ "${EXPECTED}" =~ ^[0-9]+$ ]]; then
+        echo "Failed to read IngressController expected replicas"
+        exit 1
+      fi
       READY=$(echo "${PODS}" | jq -r '[.items[] | select(.status.phase == "Running") | select(all(.status.containerStatuses[]?; .ready == true))] | length')
       if [ "${READY}" -lt "${EXPECTED}" ]; then
         echo "Router pods ready ${READY}/${EXPECTED}:"

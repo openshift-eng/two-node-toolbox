@@ -103,7 +103,7 @@
         | select(([.metadata.ownerReferences[]? | select(.kind == "DaemonSet")] | length) == 0)
         | .metadata.name')
       if [ -n "$PODS" ]; then
-        echo "$PODS" | xargs -r oc delete -n {{ item.item.0 }} --grace-period=0 --force
+        echo "$PODS" | xargs -r oc delete pod -n {{ item.item.0 }} --grace-period=0 --force
       fi
   environment: "{{ infra_to_ha_oc_env }}"
   loop: "{{ stuck_pods_raw.results | default([]) }}"
