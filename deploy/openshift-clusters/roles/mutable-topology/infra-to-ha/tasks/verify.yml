@@ -1,3 +1,39 @@
+- name: "[verify] Wait for all nodes to be Ready (up to 20 minutes)"
+  # The transition can report complete while the MCO is still rolling out the
+  # post-transition MachineConfigs (SingleReplica -> HA re-renders configs,
+  # cordons and reboots nodes). 'oc adm transition status' does not cover
+  # that rollout, and the featuregate phase's node wait is skipped when the
+  # gates were already enabled (rerun). Poll here instead of asserting on
+  # the first read.
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      NODES=$(oc get nodes -o json)
+      if [ -z "${NODES}" ]; then
+        echo "Failed to read nodes"
+        exit 1
+      fi
+      # An empty items list must not look like 'all nodes Ready'
+      echo "${NODES}" | jq -e '.items | length > 0' >/dev/null || {
+        echo "No nodes found"
+        exit 1
+      }
+      NOT_READY=$(echo "${NODES}" | jq -r '[.items[] | select([.status.conditions[]? | select(.type == "Ready" and .status != "True")] | length > 0) | .metadata.name] | join(",")')
+      if [ -n "${NOT_READY}" ]; then
+        echo "Nodes not Ready: ${NOT_READY}"
+        exit 1
+      fi
+      echo "All nodes Ready"
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: verify_nodes_wait
+  changed_when: false
+  retries: 120
+  delay: 10
+  until: >-
+    verify_nodes_wait is defined and
+    verify_nodes_wait.rc is defined and
+    verify_nodes_wait.rc == 0
+
 - name: "[verify] Get node status"
   ansible.builtin.shell:
     cmd: oc get nodes --no-headers
