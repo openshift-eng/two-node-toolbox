@@ -32,15 +32,17 @@
 - name: "[precheck] Determine whether a topology transition will be attempted"
   # A transition is planned when the simulation will stage SingleReplica
   # (simulation on and no previous transition, i.e. spec not yet
-  # HighlyAvailable) or when the cluster genuinely reports SingleReplica
-  # status. If the topology cannot be read, assume planned (fail safe).
+  # HighlyAvailable), or when status genuinely reports SingleReplica -
+  # independently of the simulation flag, so a rerun of an interrupted
+  # transition (spec already HighlyAvailable, status still SingleReplica)
+  # is also caught. If the topology cannot be read, assume planned (fail
+  # safe).
   ansible.builtin.set_fact:
     infra_to_ha_planned_transition: >-
       {{ (precheck_topo_raw.rc | default(1)) != 0
          or ((infra_to_ha_simulate_single_replica | default(true) | bool)
              and ((precheck_topo_raw.stdout.split(',')[1] | default('')) != 'HighlyAvailable'))
-         or ((not (infra_to_ha_simulate_single_replica | default(true) | bool))
-             and ((precheck_topo_raw.stdout.split(',')[0] | default('')) == 'SingleReplica')) }}
+         or ((precheck_topo_raw.stdout.split(',')[0] | default('')) == 'SingleReplica') }}
 
 - name: "[precheck] Fail early if transition command unavailable and a transition will be needed"
   ansible.builtin.fail:
