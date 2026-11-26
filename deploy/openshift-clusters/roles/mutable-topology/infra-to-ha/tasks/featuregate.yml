@@ -60,7 +60,10 @@
         --argjson fg '{{ infra_to_ha_featuregate | to_json }}' '
         [{op: "add", path: "/spec/featureSet", value: "CustomNoUpgrade"}]
         + (if ($fg.spec.customNoUpgrade == null)
-           then [{op: "add", path: "/spec/customNoUpgrade", value: {enabled: []}}]
+           then [{op: "add", path: "/spec/customNoUpgrade", value: {}}]
+           else [] end)
+        + (if ($fg.spec.customNoUpgrade.enabled == null)
+           then [{op: "add", path: "/spec/customNoUpgrade/enabled", value: []}]
            else [] end)
         + [$gates[]
            | . as $g
