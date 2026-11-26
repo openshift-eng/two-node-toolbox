@@ -1,0 +1,52 @@
+- name: "[preflight] Query Infrastructure CR"
+  ansible.builtin.shell:
+    cmd: oc get infrastructure cluster -o json
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: infra_cr_raw
+  changed_when: false
+
+- name: "[preflight] Parse infrastructure data"
+  ansible.builtin.set_fact:
+    infra_to_ha_infra_data: "{{ infra_cr_raw.stdout | from_json }}"
+
+- name: "[preflight] Extract cluster topology"
+  ansible.builtin.set_fact:
+    infra_to_ha_platform: "{{ infra_to_ha_infra_data.spec.platformSpec.type }}"
+    infra_to_ha_cp_topology: "{{ infra_to_ha_infra_data.status.controlPlaneTopology }}"
+    infra_to_ha_infra_topology: "{{ infra_to_ha_infra_data.status.infrastructureTopology }}"
+
+- name: "[preflight] Detect current cluster state"
+  ansible.builtin.set_fact:
+    infra_to_ha_already_ha: "{{ infra_to_ha_infra_topology == 'HighlyAvailable' }}"
+    infra_to_ha_needs_transition: "{{ infra_to_ha_infra_topology == 'SingleReplica' }}"
+
+- name: "[preflight] Assert control plane is already HighlyAvailable"
+  ansible.builtin.assert:
+    that: infra_to_ha_cp_topology == 'HighlyAvailable'
+    fail_msg: >-
+      This target only transitions infrastructureTopology. Expected
+      controlPlaneTopology=HighlyAvailable, got {{ infra_to_ha_cp_topology }}.
+      Use 'make sno-to-3node' for a full SNO to 3-node HA transition.
+
+- name: "[preflight] Assert infrastructureTopology is SingleReplica or HighlyAvailable"
+  ansible.builtin.assert:
+    that: infra_to_ha_infra_topology in ['SingleReplica', 'HighlyAvailable']
+    fail_msg: "Expected infrastructureTopology SingleReplica or HighlyAvailable, got {{ infra_to_ha_infra_topology }}"
+
+- name: "[preflight] Display detected state"
+  ansible.builtin.debug:
+    msg: |
+      Cluster state: controlPlaneTopology={{ infra_to_ha_cp_topology }},
+      infrastructureTopology={{ infra_to_ha_infra_topology }}, platform={{ infra_to_ha_platform }}
+      {% if infra_to_ha_already_ha %}
+      → Infrastructure already HighlyAvailable - will verify configuration only
+      {% else %}
+      → Will transition infrastructureTopology SingleReplica -> HighlyAvailable
+      {% endif %}
+
+- name: "[preflight] Preflight checks passed"
+  ansible.builtin.debug:
+    msg: >-
+      Preflight checks passed (node readiness and cluster operator health were
+      already verified in the read-only pre-checks). Ready for infrastructure
+      topology transition.

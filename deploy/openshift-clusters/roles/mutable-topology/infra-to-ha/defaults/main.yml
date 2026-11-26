@@ -1,0 +1,54 @@
+# Cluster identity — auto-detected from the cluster at runtime.
+# infra_to_ha_cluster_name is a static default used for the kubeconfig path
+# (override with -e infra_to_ha_cluster_name=... if needed)
+infra_to_ha_cluster_name: ostest
+
+# Enable the MutableTopology FeatureGate on the cluster before transitioning
+# (applied only if not already enabled; see featuregate.yml)
+infra_to_ha_enable_featuregate: true
+
+# Feature gates required for the topology transition controller
+infra_to_ha_feature_gates:
+  - MutableTopology
+
+# Force-delete pods in openshift-monitoring that are bound to cordoned
+# (unschedulable) nodes, before and after the transition. With monitoring
+# scaled to SingleReplica, PDB-protected pods (prometheus, alertmanager)
+# cannot be evicted and hang the MCO node drain, stalling the transition;
+# force-deleting them (bypassing their PDBs) unblocks the drain.
+# Pods owned by a DaemonSet (node-exporter) are skipped: drain ignores
+# DaemonSets, so they never block and would only be recreated on the same
+# cordoned node.
+infra_to_ha_cleanup_pending_monitoring_pods: true
+
+# Namespaces to sweep for Pending pods
+infra_to_ha_pending_pod_namespaces:
+  - openshift-monitoring
+
+# Test-scenario setup: patch Infrastructure.status.infrastructureTopology to
+# SingleReplica on an already-HA cluster to simulate a SR-infrastructure
+# cluster (the reverse of what a real deployment would produce).
+# Idempotent: skipped when status is already SingleReplica, or when
+# spec.infrastructureTopology is HighlyAvailable (a transition already
+# happened - the run then verifies only).
+# WARNING: test/testing aid only - the status patch is not a supported state.
+infra_to_ha_simulate_single_replica: true
+
+# Uncordon nodes that are still cordoned while no MachineConfigPool is
+# updating (stale cordons left over from previous rollouts).
+infra_to_ha_uncordon_stale_nodes: true
+
+# Allow transition even when non-blocking readiness checks fail
+infra_to_ha_allow_transition_with_warnings: false
+
+# Fallback for when the cluster-config-operator does not reconcile
+# Infrastructure.status within 5 minutes of the transition: hand-patch the
+# status to HighlyAvailable. Disabled by default - a manual status patch
+# reports a successful transition exactly when the controller did NOT do
+# the work (e.g. a payload without cluster-config-operator#525) and can
+# race a CCO that is merely slow. Enable only as a test aid.
+infra_to_ha_allow_manual_status_patch: false
+
+# Paths (override if dev-scripts is in a non-standard location)
+infra_to_ha_kubeconfig: ""
+infra_to_ha_dev_scripts_path: "{{ dev_scripts_path | default('openshift-metal3/dev-scripts') }}"

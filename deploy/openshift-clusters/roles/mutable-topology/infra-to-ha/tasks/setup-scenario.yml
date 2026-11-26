@@ -1,0 +1,72 @@
+# Test-scenario setup: simulate a SingleReplica-infrastructure cluster by
+# patching Infrastructure.status.infrastructureTopology to SingleReplica on an
+# already-HA cluster. Only intended for testing the SR -> HA transition.
+
+- name: "[setup] Read current Infrastructure topologies"
+  ansible.builtin.shell:
+    cmd: >-
+      oc get infrastructure cluster
+      -o jsonpath='{.status.controlPlaneTopology},{.status.infrastructureTopology},{.spec.infrastructureTopology}'
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: setup_current_topo
+  changed_when: false
+
+- name: "[setup] Display current topologies"
+  ansible.builtin.debug:
+    msg: "Current topologies: {{ setup_current_topo.stdout }}"
+
+- name: "[setup] Set scenario topologies"
+  ansible.builtin.set_fact:
+    setup_cp_topology: "{{ setup_current_topo.stdout.split(',')[0] }}"
+    setup_infra_topology: "{{ setup_current_topo.stdout.split(',')[1] | default('') }}"
+    setup_spec_infra_topology: "{{ setup_current_topo.stdout.split(',')[2] | default('') }}"
+
+- name: "[setup] Fail if control plane is not HighlyAvailable"
+  ansible.builtin.fail:
+    msg: >-
+      Scenario setup expects controlPlaneTopology=HighlyAvailable,
+      got '{{ setup_cp_topology }}'.
+  when: setup_cp_topology != "HighlyAvailable"
+
+- name: "[setup] Skip scenario setup - infrastructureTopology already SingleReplica"
+  ansible.builtin.debug:
+    msg: "infrastructureTopology is already SingleReplica - no status patch needed."
+  when: setup_infra_topology == "SingleReplica"
+
+- name: "[setup] Skip scenario setup - transition already happened"
+  ansible.builtin.debug:
+    msg: >-
+      Infrastructure.spec.infrastructureTopology is HighlyAvailable - a topology
+      transition already happened; skipping simulation so the run verifies only.
+  when: setup_spec_infra_topology == "HighlyAvailable"
+
+- name: "[setup] Patch Infrastructure.status.infrastructureTopology to SingleReplica"
+  ansible.builtin.shell:
+    cmd: >
+      oc patch infrastructure cluster --type merge --subresource status
+      -p '{"status":{"infrastructureTopology":"SingleReplica"}}'
+  environment: "{{ infra_to_ha_oc_env }}"
+  when:
+    - setup_infra_topology != "SingleReplica"
+    - setup_spec_infra_topology != "HighlyAvailable"
+
+- name: "[setup] Verify status patch applied"
+  ansible.builtin.shell:
+    cmd: oc get infrastructure cluster -o jsonpath='{.status.infrastructureTopology}'
+  environment: "{{ infra_to_ha_oc_env }}"
+  register: setup_verify
+  changed_when: false
+  retries: 5
+  delay: 2
+  until: setup_verify.stdout == "SingleReplica"
+  when:
+    - setup_infra_topology != "SingleReplica"
+    - setup_spec_infra_topology != "HighlyAvailable"
+
+- name: "[setup] Scenario ready"
+  ansible.builtin.debug:
+    msg: >-
+      Scenario staged: controlPlaneTopology=HighlyAvailable,
+      infrastructureTopology=SingleReplica (simulated via status patch).
+      Pending monitoring pods will be cleaned up in a later phase.
+  when: setup_spec_infra_topology != "HighlyAvailable"
