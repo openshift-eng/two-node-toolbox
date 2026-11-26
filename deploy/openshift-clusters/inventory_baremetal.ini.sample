@@ -56,7 +56,7 @@ api_vip=192.168.1.100
 #machine_network=192.168.1.0/24
 #gateway=192.168.1.1
 #dns_servers=10.11.5.160,10.2.32.85
-iso_url=http://10.1.235.49:8080/dev-scripts/ostest/agent.x86_64.iso
+iso_url=http://10.18.35.67:8080/dev-scripts/ostest/agent.x86_64.iso
 
 [provisioning_host]
 # Provisioning host for baremetal ABI deployment. Must be on the same L2 network
