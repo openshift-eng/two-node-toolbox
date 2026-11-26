@@ -32,7 +32,19 @@
 - name: "[pods] Check for MachineConfigPools still updating"
   ansible.builtin.shell:
     cmd: |
-      oc get mcp -o json | jq -r \
+      set -o pipefail
+      MCP=$(oc get mcp -o json)
+      if [ -z "${MCP}" ]; then
+        echo "Failed to read MachineConfigPools"
+        exit 1
+      fi
+      # An empty items list must not look like 'no pools updating' (that would
+      # uncordon nodes the MCO cordoned mid-rollout)
+      echo "${MCP}" | jq -e '.items | length > 0' >/dev/null || {
+        echo "No MachineConfigPools found"
+        exit 1
+      }
+      echo "${MCP}" | jq -r \
         '[.items[] | select([.status.conditions[]? | select(.type == "Updated" and .status == "False")] | length > 0) | .metadata.name] | join(",")'
   environment: "{{ infra_to_ha_oc_env }}"
   register: updating_mcps_raw
@@ -52,6 +64,7 @@
   when:
     - infra_to_ha_unschedulable_nodes | length > 0
     - infra_to_ha_uncordon_stale_nodes | default(true) | bool
+    - updating_mcps_raw.rc | default(1) == 0
     - (updating_mcps_raw.stdout | default('')) | trim == ''
 
 - name: "[pods] Skip uncordon - MCO rollout in progress"
